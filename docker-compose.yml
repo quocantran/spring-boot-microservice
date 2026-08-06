@@ -1,0 +1,135 @@
+services:
+  # ─── Infrastructure: MySQL ─────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: movie-booking-mysql
+    hostname: mysql
+    ports:
+      - '3306:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: '123456'
+      MYSQL_ROOT_HOST: '%'
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --binlog-row-image=FULL
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql
+      - ./scripts/seed-data.sql:/docker-entrypoint-initdb.d/02-seed-data.sql
+    networks:
+      - app-network
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-p123456']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── Infrastructure: Redis ───────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: movie-booking-redis
+    hostname: redis
+    ports:
+      - '6379:6379'
+    networks:
+      - app-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Infrastructure: Kafka (KRaft) ─────────────
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: movie-booking-kafka
+    hostname: kafka
+    ports:
+      - '9092:9092'
+      - '9094:9094'
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CLUSTER_ID: MovieBookingCluster1234
+      KAFKA_LOG_RETENTION_MS: 604800000
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      KAFKA_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      KAFKA_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KAFKA_HEAP_OPTS: '-Xms256M -Xmx512M'
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ['CMD', 'bash', '-c', 'nc -z localhost 9092']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── Infrastructure: Kafka UI ──────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: movie-booking-kafka-ui
+    ports:
+      - '8099:8080'
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: 'movie-booking'
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 'kafka:9092'
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    networks:
+      - app-network
+
+  # ─── Infrastructure: Debezium CDC ──────────────
+  debezium:
+    image: debezium/connect:2.5
+    container_name: movie-booking-debezium
+    hostname: debezium
+    ports:
+      - '8083:8083'
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: debezium-movie-booking-group
+      CONFIG_STORAGE_TOPIC: _debezium_movie_configs
+      OFFSET_STORAGE_TOPIC: _debezium_movie_offsets
+      STATUS_STORAGE_TOPIC: _debezium_movie_status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: 'false'
+      VALUE_CONVERTER_SCHEMAS_ENABLE: 'false'
+      CONNECT_REST_ADVERTISED_HOST_NAME: debezium
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  kafka_data:
+  redis_data:

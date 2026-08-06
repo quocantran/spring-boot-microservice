@@ -1,0 +1,62 @@
+# ==============================
+# OS & Editor
+# ==============================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.iml
+
+# ==============================
+# Environment & Secrets
+# ==============================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+
+# ==============================
+# Java / Maven / Spring Boot
+# ==============================
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# ==============================
+# Frontend / Next.js / Node.js
+# ==============================
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# ==============================
+# Docker
+# ==============================
+docker-data/
+*.tar
+
+# ==============================
+# Testing & Coverage
+# ==============================
+coverage/
+*.lcov
+test-results/

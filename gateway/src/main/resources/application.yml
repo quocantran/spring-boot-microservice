@@ -1,0 +1,60 @@
+server:
+  port: ${GATEWAY_PORT:8080}
+
+spring:
+  application:
+    name: gateway
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+              - PATCH
+            allowedHeaders: "*"
+      routes:
+        - id: auth-service
+          uri: ${AUTH_SERVICE_URL:http://localhost:5005}
+          predicates:
+            - Path=/auth/**
+
+        - id: booking-service
+          uri: ${BOOKING_SERVICE_URL:http://localhost:5001}
+          predicates:
+            - Path=/bookings/**
+
+        - id: seat-service
+          uri: ${SEAT_SERVICE_URL:http://localhost:5002}
+          predicates:
+            - Path=/seats/**
+
+        - id: movie-service-movies
+          uri: ${MOVIE_SERVICE_URL:http://localhost:5003}
+          predicates:
+            - Path=/movies/**
+
+        - id: movie-service-showtimes
+          uri: ${MOVIE_SERVICE_URL:http://localhost:5003}
+          predicates:
+            - Path=/showtimes/**
+
+        - id: payment-service-wallets
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:5004}
+          predicates:
+            - Path=/wallets/**
+
+        - id: payment-service-topup
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:5004}
+          predicates:
+            - Path=/topup/**
+
+        - id: ai-recommender-service
+          uri: ${AI_RECOMMENDER_SERVICE_URL:http://localhost:5006}
+          predicates:
+            - Path=/recommendations/**
