@@ -15,7 +15,11 @@
     <packaging>jar</packaging>
 
     <name>ai-recommender-service</name>
-    <description>AI Recommender Microservice</description>
+    <description>AI Recommender Microservice with DJL ONNX Runtime</description>
+
+    <properties>
+        <djl.version>0.27.0</djl.version>
+    </properties>
 
     <dependencies>
         <!-- Common Module -->
@@ -28,6 +32,28 @@
         <dependency>
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
+        </dependency>
+
+        <!-- DJL (Deep Java Library) - AWS Production AI Framework -->
+        <dependency>
+            <groupId>ai.djl</groupId>
+            <artifactId>api</artifactId>
+            <version>${djl.version}</version>
+        </dependency>
+
+        <!-- DJL ONNX Runtime Engine (production-grade, cross-platform) -->
+        <dependency>
+            <groupId>ai.djl.onnxruntime</groupId>
+            <artifactId>onnxruntime-engine</artifactId>
+            <version>${djl.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- DJL HuggingFace Tokenizer (for all-MiniLM-L6-v2 tokenization) -->
+        <dependency>
+            <groupId>ai.djl.huggingface</groupId>
+            <artifactId>tokenizers</artifactId>
+            <version>${djl.version}</version>
         </dependency>
 
         <!-- Lombok -->
