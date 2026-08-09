@@ -1,0 +1,114 @@
+# Prometheus Alert Rules Template
+# Values like __ALERT_CPU_THRESHOLD__ are dynamically substituted at startup from .env
+
+groups:
+  # ─── Host Alerts (Node Exporter) ────────────────
+  - name: host-alerts
+    rules:
+      - alert: HostHighCpuUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > __ALERT_CPU_THRESHOLD__
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host CPU usage is above __ALERT_CPU_THRESHOLD__%"
+          description: "Host CPU usage has been above __ALERT_CPU_THRESHOLD__% for more than 5 minutes."
+          current_value: "{{ $value | printf \"%.1f\" }}%"
+          threshold: "__ALERT_CPU_THRESHOLD__%"
+
+      - alert: HostHighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > __ALERT_RAM_THRESHOLD__
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host memory usage is above __ALERT_RAM_THRESHOLD__%"
+          description: "Host memory usage has been above __ALERT_RAM_THRESHOLD__% for more than 5 minutes."
+          current_value: "{{ $value | printf \"%.1f\" }}%"
+          threshold: "__ALERT_RAM_THRESHOLD__%"
+
+      - alert: HostHighDiskUsage
+        expr: (1 - (node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs"})) * 100 > __ALERT_DISK_THRESHOLD__
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host disk usage is above __ALERT_DISK_THRESHOLD__%"
+          description: "Disk usage on {{ $labels.mountpoint }} is above __ALERT_DISK_THRESHOLD__%."
+          current_value: "{{ $value | printf \"%.1f\" }}%"
+          threshold: "__ALERT_DISK_THRESHOLD__%"
+
+  # ─── Spring Boot Service Alerts (Micrometer) ────
+  - name: springboot-alerts
+    rules:
+      - alert: HighHttp5xxRate
+        expr: >
+          (
+            sum by(application, instance) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+            /
+            sum by(application, instance) (rate(http_server_requests_seconds_count[5m]))
+          ) > __ALERT_5XX_RATE_THRESHOLD__
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate on {{ $labels.application }}"
+          description: "More than {{ $value | printf \"%.1f\" }}% of requests are returning 5xx errors on {{ $labels.application }}."
+          current_value: "{{ $value | printf \"%.2f\" }}"
+          threshold: "__ALERT_5XX_RATE_THRESHOLD__"
+
+      - alert: HighApiResponseTime
+        expr: >
+          histogram_quantile(0.95,
+            sum by(le, application) (rate(http_server_requests_seconds_bucket[5m]))
+          ) > __ALERT_LATENCY_P95_THRESHOLD__
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API response time on {{ $labels.application }}"
+          description: "95th percentile response time on {{ $labels.application }} is above __ALERT_LATENCY_P95_THRESHOLD__ seconds."
+          current_value: "{{ $value | printf \"%.2f\" }}s"
+          threshold: "__ALERT_LATENCY_P95_THRESHOLD__s"
+
+  # ─── Target / Service Availability ──────────────
+  - name: availability-alerts
+    rules:
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus target {{ $labels.job }} is down"
+          description: "Target {{ $labels.instance }} (job: {{ $labels.job }}) has been unreachable for more than 1 minute."
+          current_value: "DOWN"
+          threshold: "UP"
+
+  # ─── Docker Container Alerts (cAdvisor) ─────────
+  - name: container-alerts
+    rules:
+      - alert: ContainerHighCpuUsage
+        expr: >
+          sum by(name) (rate(container_cpu_usage_seconds_total{name=~"movie-booking-.*", image!=""}[5m])) * 100 > __ALERT_CONTAINER_CPU_THRESHOLD__
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} CPU usage is high"
+          description: "Container {{ $labels.name }} CPU usage has been above __ALERT_CONTAINER_CPU_THRESHOLD__% for more than 5 minutes."
+          current_value: "{{ $value | printf \"%.1f\" }}%"
+          threshold: "__ALERT_CONTAINER_CPU_THRESHOLD__%"
+
+      - alert: ContainerHighMemoryUsage
+        expr: >
+          (container_memory_usage_bytes{name=~"movie-booking-.*", image!=""}
+          / container_spec_memory_limit_bytes{name=~"movie-booking-.*", image!=""}) * 100 > __ALERT_CONTAINER_RAM_THRESHOLD__
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} memory usage is high"
+          description: "Container {{ $labels.name }} is using more than __ALERT_CONTAINER_RAM_THRESHOLD__% of its memory limit."
+          current_value: "{{ $value | printf \"%.1f\" }}%"
+          threshold: "__ALERT_CONTAINER_RAM_THRESHOLD__%"

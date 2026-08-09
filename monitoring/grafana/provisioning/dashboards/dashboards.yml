@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: 'Movie Booking'
+    orgId: 1
+    folder: 'Movie Booking'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
