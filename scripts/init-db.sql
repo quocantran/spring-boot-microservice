@@ -6,7 +6,7 @@
 -- ============================================
 -- BOOKING SERVICE DATABASE (booking_db)
 -- ============================================
-CREATE DATABASE IF NOT EXISTS booking_db;
+CREATE DATABASE IF NOT EXISTS booking_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE booking_db;
 
 CREATE TABLE IF NOT EXISTS bookings (
@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     seat_ids JSON NOT NULL,
     total_amount DECIMAL(10,2) NOT NULL,
     status ENUM('PENDING', 'SEATS_RESERVED', 'PAYMENT_PROCESSED', 'CONFIRMED', 'CANCELLED') DEFAULT 'PENDING',
+    failure_reason VARCHAR(500) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_id (user_id),

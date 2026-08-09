@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -32,6 +33,7 @@ public class SeatServiceImpl implements SeatService {
     private final SeatRepository seatRepository;
     private final OutboxService outboxService;
     private final RedisLockService redisLockService;
+    private final TransactionTemplate transactionTemplate;
 
     private static final long REDIS_LOCK_TTL_MS = 5000;
     private static final long SEAT_HOLD_MINUTES = 5;
@@ -60,7 +62,9 @@ public class SeatServiceImpl implements SeatService {
         }
 
         try {
-            doReserveSeatsTransaction(payload);
+            transactionTemplate.executeWithoutResult(status -> {
+                doReserveSeatsTransaction(payload);
+            });
         } catch (Exception e) {
             log.error("Failed to reserve seats for bookingId: {}", bookingId, e);
             emitReservationFailed(bookingId, showtimeId, seatIds, e.getMessage());

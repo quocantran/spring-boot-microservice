@@ -4,8 +4,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -16,10 +16,13 @@ import java.util.*;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class RedisLockService {
 
     private final StringRedisTemplate redisTemplate;
+
+    public RedisLockService(@Autowired(required = false) StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
 
     private static final String RELEASE_SCRIPT =
             "if redis.call('get', KEYS[1]) == ARGV[1] then " +
@@ -41,6 +44,10 @@ public class RedisLockService {
     }
 
     public String acquireLock(String key, long ttlMs) {
+        if (redisTemplate == null) {
+            log.warn("RedisTemplate not present, returning dummy lock token for key {}", key);
+            return UUID.randomUUID().toString();
+        }
         String token = UUID.randomUUID().toString();
         Boolean success = redisTemplate.execute((RedisCallback<Boolean>) connection -> {
             Object obj = connection.execute(
@@ -58,11 +65,25 @@ public class RedisLockService {
     }
 
     public boolean releaseLock(String key, String token) {
+        if (redisTemplate == null) {
+            return true;
+        }
         Long result = redisTemplate.execute(releaseRedisScript, Collections.singletonList(key), token);
         return Long.valueOf(1L).equals(result);
     }
 
     public LockResult acquireMultipleLocks(List<String> keys, long ttlMs) {
+        if (redisTemplate == null) {
+            log.warn("RedisTemplate not present, returning dummy multiple lock tokens for keys {}", keys);
+            Map<String, String> tokens = new HashMap<>();
+            if (keys != null) {
+                for (String key : keys) {
+                    tokens.put(key, UUID.randomUUID().toString());
+                }
+            }
+            return LockResult.builder().success(true).tokens(tokens).build();
+        }
+
         Map<String, String> tokens = new HashMap<>();
         List<String> tokenValues = new ArrayList<>();
         for (int i = 0; i < keys.size(); i++) {
@@ -109,7 +130,7 @@ public class RedisLockService {
     }
 
     public void releaseMultipleLocks(Map<String, String> tokens) {
-        if (tokens == null || tokens.isEmpty()) {
+        if (redisTemplate == null || tokens == null || tokens.isEmpty()) {
             return;
         }
 
