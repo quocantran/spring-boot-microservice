@@ -25,4 +25,10 @@ public class CustomExceptions {
             super(message);
         }
     }
+
+    public static class ConflictException extends RuntimeException {
+        public ConflictException(String message) {
+            super(message);
+        }
+    }
 }

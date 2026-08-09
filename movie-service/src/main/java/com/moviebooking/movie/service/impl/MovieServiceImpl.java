@@ -15,9 +15,13 @@ import com.moviebooking.movie.entity.ShowtimeEntity;
 import com.moviebooking.movie.repository.MovieRepository;
 import com.moviebooking.movie.repository.ShowtimeRepository;
 import com.moviebooking.movie.service.MovieService;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -38,19 +42,21 @@ public class MovieServiceImpl implements MovieService {
     private final MovieRepository movieRepository;
     private final ShowtimeRepository showtimeRepository;
     private final OutboxService outboxService;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
 
     @Value("${seat-service.url:http://localhost:5002}")
     private String seatServiceUrl;
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "movies", key = "'all'")
     public List<MovieEntity> findAllMovies() {
         return movieRepository.findAllByOrderByCreatedAtDesc();
     }
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "movies", key = "#id")
     public MovieEntity findMovieById(String id) {
         return movieRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Không tìm thấy phim với ID: " + id));
@@ -58,6 +64,7 @@ public class MovieServiceImpl implements MovieService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "showtimes", key = "#movieId")
     public List<ShowtimeEntity> findShowtimesByMovieId(String movieId) {
         findMovieById(movieId); // Ensures movie exists
         return showtimeRepository.findByMovieIdOrderByStartTimeAsc(movieId);
@@ -65,6 +72,7 @@ public class MovieServiceImpl implements MovieService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "movies", allEntries = true)
     public MovieEntity createMovie(CreateMovieRequest dto) {
         if (dto.getTitle() == null || dto.getGenre() == null || dto.getDuration() == null) {
             throw new BadRequestException("Thiếu thông tin bắt buộc: title, genre, duration");
@@ -105,6 +113,7 @@ public class MovieServiceImpl implements MovieService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "showtimes", allEntries = true)
     public CreateShowtimeResponse createShowtime(String movieId, CreateShowtimeRequest dto) {
         MovieEntity movie = findMovieById(movieId);
 
@@ -137,21 +146,7 @@ public class MovieServiceImpl implements MovieService {
 
         showtimeRepository.save(showtime);
 
-        int seatsGenerated = 0;
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            Map<String, Object> body = Map.of("showtimeId", showtimeId, "rows", 5, "cols", 8);
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
-
-            Map response = restTemplate.postForObject(seatServiceUrl + "/seats/generate", entity, Map.class);
-            if (response != null && response.containsKey("generated")) {
-                seatsGenerated = ((Number) response.get("generated")).intValue();
-            }
-            log.info("Generated {} seats for showtimeId: {}", seatsGenerated, showtimeId);
-        } catch (Exception e) {
-            log.warn("Failed to auto-generate seats for showtimeId: {}. Error: {}", showtimeId, e.getMessage());
-        }
+        int seatsGenerated = generateSeatsForShowtime(showtimeId);
 
         return CreateShowtimeResponse.builder()
                 .id(showtime.getId())
@@ -163,5 +158,35 @@ public class MovieServiceImpl implements MovieService {
                 .updatedAt(showtime.getUpdatedAt())
                 .seatsGenerated(seatsGenerated)
                 .build();
+    }
+
+    /**
+     * Inter-service REST call to seat-service.
+     * Protected by Resilience4j Circuit Breaker + Retry.
+     */
+    @CircuitBreaker(name = "seatService", fallbackMethod = "generateSeatsFallback")
+    @Retry(name = "seatService")
+    public int generateSeatsForShowtime(String showtimeId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        Map<String, Object> body = Map.of("showtimeId", showtimeId, "rows", 5, "cols", 8);
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+
+        Map response = restTemplate.postForObject(seatServiceUrl + "/seats/generate", entity, Map.class);
+        int seatsGenerated = 0;
+        if (response != null && response.containsKey("generated")) {
+            seatsGenerated = ((Number) response.get("generated")).intValue();
+        }
+        log.info("Generated {} seats for showtimeId: {}", seatsGenerated, showtimeId);
+        return seatsGenerated;
+    }
+
+    /**
+     * Fallback when seat-service circuit is open or call fails after retries.
+     */
+    public int generateSeatsFallback(String showtimeId, Exception ex) {
+        log.warn("Seat generation failed for showtimeId: {}. Circuit Breaker fallback activated. Error: {}",
+                showtimeId, ex.getMessage());
+        return 0;
     }
 }

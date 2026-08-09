@@ -12,6 +12,8 @@ import com.moviebooking.recommender.repository.MovieEmbeddingRepository;
 import com.moviebooking.recommender.repository.UserBehaviorRepository;
 import com.moviebooking.recommender.service.EmbeddingService;
 import com.moviebooking.recommender.service.RecommenderService;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,7 +36,7 @@ public class RecommenderServiceImpl implements RecommenderService {
     private final UserBehaviorRepository behaviorRepository;
     private final EmbeddingService embeddingService;
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
 
     @Value("${movie-service.url:http://localhost:5003}")
     private String movieServiceUrl;
@@ -325,16 +327,26 @@ public class RecommenderServiceImpl implements RecommenderService {
         }
     }
 
+    /**
+     * Inter-service REST call to movie-service.
+     * Protected by Resilience4j Circuit Breaker + Retry.
+     */
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> fetchAllMovies() {
-        try {
-            ResponseEntity<List> response = restTemplate.getForEntity(movieServiceUrl + "/movies", List.class);
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                return (List<Map<String, Object>>) response.getBody();
-            }
-        } catch (Exception e) {
-            log.warn("Failed to fetch movies from movie-service: {}", e.getMessage());
+    @CircuitBreaker(name = "movieService", fallbackMethod = "fetchAllMoviesFallback")
+    @Retry(name = "movieService")
+    public List<Map<String, Object>> fetchAllMovies() {
+        ResponseEntity<List> response = restTemplate.getForEntity(movieServiceUrl + "/movies", List.class);
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            return (List<Map<String, Object>>) response.getBody();
         }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Fallback when movie-service is unavailable.
+     */
+    public List<Map<String, Object>> fetchAllMoviesFallback(Exception ex) {
+        log.warn("Movie-service unavailable. Circuit Breaker fallback activated: {}", ex.getMessage());
         return Collections.emptyList();
     }
 }

@@ -32,3 +32,15 @@ jwt:
 debezium:
   host: ${DEBEZIUM_HOST:localhost:8083}
   auto-register: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
