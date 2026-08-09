@@ -154,7 +154,10 @@ public class DebeziumConnectorService {
 
     private void restartConnector() {
         try {
-            restTemplate.postForEntity(getBaseUrl() + "/connectors/" + connectorName + "/restart", null, Void.class);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+            restTemplate.postForEntity(getBaseUrl() + "/connectors/" + connectorName + "/restart", entity, Void.class);
         } catch (Exception e) {
             log.warn("Failed to restart connector: {}", e.getMessage());
         }

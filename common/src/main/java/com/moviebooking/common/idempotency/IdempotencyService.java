@@ -7,6 +7,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Slf4j
 @Service
@@ -14,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class IdempotencyService {
 
     private final ProcessedEventRepository processedEventRepository;
+    private final TransactionTemplate transactionTemplate;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean tryClaimEvent(String eventId, String eventType) {
@@ -40,8 +42,8 @@ public class IdempotencyService {
     }
 
     public boolean processWithIdempotency(String eventId, String eventType, Runnable handler) {
-        boolean claimed = tryClaimEvent(eventId, eventType);
-        if (!claimed) {
+        Boolean claimed = transactionTemplate.execute(status -> tryClaimEvent(eventId, eventType));
+        if (claimed == null || !claimed) {
             return false;
         }
 
@@ -49,7 +51,7 @@ public class IdempotencyService {
             handler.run();
             return true;
         } catch (Exception e) {
-            releaseClaim(eventId);
+            transactionTemplate.executeWithoutResult(status -> releaseClaim(eventId));
             throw e;
         }
     }
