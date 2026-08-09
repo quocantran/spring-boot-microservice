@@ -4,6 +4,13 @@ server:
 spring:
   application:
     name: gateway
+
+  # Redis connection for Rate Limiting
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
   cloud:
     gateway:
       globalcors:
@@ -18,43 +25,170 @@ spring:
               - OPTIONS
               - PATCH
             allowedHeaders: "*"
+
+      # Default filters applied to ALL routes
+      default-filters:
+        - name: Retry
+          args:
+            retries: 3
+            statuses: BAD_GATEWAY,SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT
+            methods: GET
+            backoff:
+              firstBackoff: 100ms
+              maxBackoff: 500ms
+              factor: 2
+
       routes:
         - id: auth-service
           uri: ${AUTH_SERVICE_URL:http://localhost:5005}
           predicates:
             - Path=/auth/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: authService
+                fallbackUri: forward:/fallback/service-unavailable
 
         - id: booking-service
           uri: ${BOOKING_SERVICE_URL:http://localhost:5001}
           predicates:
             - Path=/bookings/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: bookingService
+                fallbackUri: forward:/fallback/service-unavailable
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 40
+                redis-rate-limiter.requestedTokens: 1
 
         - id: seat-service
           uri: ${SEAT_SERVICE_URL:http://localhost:5002}
           predicates:
             - Path=/seats/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: seatService
+                fallbackUri: forward:/fallback/service-unavailable
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 30
+                redis-rate-limiter.burstCapacity: 60
+                redis-rate-limiter.requestedTokens: 1
 
         - id: movie-service-movies
           uri: ${MOVIE_SERVICE_URL:http://localhost:5003}
           predicates:
             - Path=/movies/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: movieService
+                fallbackUri: forward:/fallback/service-unavailable
 
         - id: movie-service-showtimes
           uri: ${MOVIE_SERVICE_URL:http://localhost:5003}
           predicates:
             - Path=/showtimes/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: movieService
+                fallbackUri: forward:/fallback/service-unavailable
 
         - id: payment-service-wallets
           uri: ${PAYMENT_SERVICE_URL:http://localhost:5004}
           predicates:
             - Path=/wallets/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: paymentService
+                fallbackUri: forward:/fallback/service-unavailable
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+                redis-rate-limiter.requestedTokens: 1
 
         - id: payment-service-topup
           uri: ${PAYMENT_SERVICE_URL:http://localhost:5004}
           predicates:
             - Path=/topup/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: paymentService
+                fallbackUri: forward:/fallback/service-unavailable
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 10
+                redis-rate-limiter.requestedTokens: 1
 
         - id: ai-recommender-service
           uri: ${AI_RECOMMENDER_SERVICE_URL:http://localhost:5006}
           predicates:
             - Path=/recommendations/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: aiRecommenderService
+                fallbackUri: forward:/fallback/service-unavailable
+
+# JWT secret for Gateway JWT validation (Spring Security)
+jwt:
+  secret: ${JWT_SECRET:movie-booking-jwt-secret-key-2026}
+
+# Resilience4j Circuit Breaker configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        slidingWindowType: COUNT_BASED
+    instances:
+      authService:
+        baseConfig: default
+      bookingService:
+        baseConfig: default
+      seatService:
+        baseConfig: default
+      movieService:
+        baseConfig: default
+      paymentService:
+        baseConfig: default
+        failureRateThreshold: 30
+        waitDurationInOpenState: 15s
+      aiRecommenderService:
+        baseConfig: default
+        waitDurationInOpenState: 20s
+
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 5s
+    instances:
+      paymentService:
+        timeoutDuration: 10s
+      aiRecommenderService:
+        timeoutDuration: 15s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}

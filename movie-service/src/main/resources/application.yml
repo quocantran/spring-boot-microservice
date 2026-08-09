@@ -4,10 +4,6 @@ server:
 spring:
   application:
     name: movie-service
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/movie_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: ${DB_USERNAME:root}
@@ -21,11 +17,44 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
 
+  # Redis for caching (movies, showtimes)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
 jwt:
   secret: ${JWT_SECRET:movie-booking-jwt-secret-key-2026}
 
 debezium:
   auto-register: false
+
+# Inter-service URL
+seat-service:
+  url: ${SEAT_SERVICE_URL:http://localhost:5002}
+
+# Resilience4j — Circuit Breaker + Retry for inter-service calls
+resilience4j:
+  circuitbreaker:
+    instances:
+      seatService:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        slidingWindowType: COUNT_BASED
+        registerHealthIndicator: true
+  retry:
+    instances:
+      seatService:
+        maxAttempts: 3
+        waitDuration: 500ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        retryExceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - java.net.ConnectException
 
 management:
   endpoints:

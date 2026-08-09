@@ -1,0 +1,41 @@
+# Promtail Configuration
+# Collects Docker container logs via Docker socket service discovery
+# Filters out sensitive data (passwords, secrets, API keys, JWTs, webhooks)
+
+server:
+  http_listen_port: 9080
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: "unix:///var/run/docker.sock"
+        refresh_interval: 5s
+    relabel_configs:
+      # Extract container name (strip leading /)
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      # Extract compose service name
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      # Extract compose project name
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: 'project'
+      # Add log stream label
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'logstream'
+      # Add static environment label
+      - target_label: 'environment'
+        replacement: 'production'
+    pipeline_stages:
+      - docker: {}
+      # Redact sensitive values (passwords, secrets, API keys, JWTs, webhooks)
+      - replace:
+          expression: '(?i)(password|secret|api[_-]?key|webhook[_-]?url|jwt[_-]?secret|checksum[_-]?key|PAYOS_API_KEY|PAYOS_CHECKSUM_KEY|PAYOS_CLIENT_ID)\s*[=:]\s*\S+'
+          replace: '${1}=***REDACTED***'

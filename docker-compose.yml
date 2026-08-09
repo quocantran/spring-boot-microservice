@@ -1,4 +1,8 @@
 services:
+  # ═══════════════════════════════════════════════════
+  #  INFRASTRUCTURE (default — always starts)
+  # ═══════════════════════════════════════════════════
+
   # ─── Infrastructure: MySQL ─────────────────────
   mysql:
     image: mysql:8.0
@@ -125,6 +129,369 @@ services:
     networks:
       - app-network
 
+  # ═══════════════════════════════════════════════════
+  #  SPRING BOOT SERVICES (production profile)
+  # ═══════════════════════════════════════════════════
+
+  gateway:
+    profiles: ["production"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: gateway
+    container_name: movie-booking-gateway
+    hostname: gateway
+    ports:
+      - '${GATEWAY_PORT:-8080}:${GATEWAY_PORT:-8080}'
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      GATEWAY_PORT: ${GATEWAY_PORT:-8080}
+      BOOKING_SERVICE_URL: http://booking-service:${BOOKING_SERVICE_PORT:-5001}
+      MOVIE_SERVICE_URL: http://movie-service:${MOVIE_SERVICE_PORT:-5003}
+      PAYMENT_SERVICE_URL: http://payment-service:${PAYMENT_SERVICE_PORT:-5004}
+      AUTH_SERVICE_URL: http://auth-service:${AUTH_SERVICE_PORT:-5005}
+      SEAT_SERVICE_URL: http://seat-service:${SEAT_SERVICE_PORT:-5002}
+      AI_RECOMMENDER_SERVICE_URL: http://ai-recommender-service:${AI_RECOMMENDER_SERVICE_PORT:-5006}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      auth-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  auth-service:
+    profiles: ["production"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: auth-service
+    container_name: movie-booking-auth-service
+    hostname: auth-service
+    ports:
+      - '${AUTH_SERVICE_PORT:-5005}:${AUTH_SERVICE_PORT:-5005}'
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      AUTH_SERVICE_PORT: ${AUTH_SERVICE_PORT:-5005}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  booking-service:
+    profiles: ["production"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: booking-service
+    container_name: movie-booking-booking-service
+    hostname: booking-service
+    ports:
+      - '${BOOKING_SERVICE_PORT:-5001}:${BOOKING_SERVICE_PORT:-5001}'
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      BOOKING_SERVICE_PORT: ${BOOKING_SERVICE_PORT:-5001}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      KAFKA_BROKER: kafka:9092
+      JWT_SECRET: ${JWT_SECRET}
+      DEBEZIUM_HOST: debezium:8083
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  seat-service:
+    profiles: ["production"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: seat-service
+    container_name: movie-booking-seat-service
+    hostname: seat-service
+    ports:
+      - '${SEAT_SERVICE_PORT:-5002}:${SEAT_SERVICE_PORT:-5002}'
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SEAT_SERVICE_PORT: ${SEAT_SERVICE_PORT:-5002}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKER: kafka:9092
+      JWT_SECRET: ${JWT_SECRET}
+      DEBEZIUM_HOST: debezium:8083
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  movie-service:
+    profiles: ["production"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: movie-service
+    container_name: movie-booking-movie-service
+    hostname: movie-service
+    ports:
+      - '${MOVIE_SERVICE_PORT:-5003}:${MOVIE_SERVICE_PORT:-5003}'
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MOVIE_SERVICE_PORT: ${MOVIE_SERVICE_PORT:-5003}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SEAT_SERVICE_URL: http://seat-service:${SEAT_SERVICE_PORT:-5002}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  payment-service:
+    profiles: ["production"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: payment-service
+    container_name: movie-booking-payment-service
+    hostname: payment-service
+    ports:
+      - '${PAYMENT_SERVICE_PORT:-5004}:${PAYMENT_SERVICE_PORT:-5004}'
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      PAYMENT_SERVICE_PORT: ${PAYMENT_SERVICE_PORT:-5004}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      KAFKA_BROKER: kafka:9092
+      JWT_SECRET: ${JWT_SECRET}
+      PAYOS_URL: ${PAYOS_URL}
+      PAYOS_CLIENT_ID: ${PAYOS_CLIENT_ID}
+      PAYOS_API_KEY: ${PAYOS_API_KEY}
+      PAYOS_CHECKSUM_KEY: ${PAYOS_CHECKSUM_KEY}
+      DEBEZIUM_HOST: debezium:8083
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  ai-recommender-service:
+    profiles: ["production"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: ai-recommender-service
+    container_name: movie-booking-ai-recommender-service
+    hostname: ai-recommender-service
+    ports:
+      - '${AI_RECOMMENDER_SERVICE_PORT:-5006}:${AI_RECOMMENDER_SERVICE_PORT:-5006}'
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      AI_RECOMMENDER_SERVICE_PORT: ${AI_RECOMMENDER_SERVICE_PORT:-5006}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      KAFKA_BROKER: kafka:9092
+      JWT_SECRET: ${JWT_SECRET}
+      MOVIE_SERVICE_URL: http://movie-service:${MOVIE_SERVICE_PORT:-5003}
+      DEBEZIUM_HOST: debezium:8083
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ═══════════════════════════════════════════════════
+  #  MONITORING STACK (monitoring profile)
+  # ═══════════════════════════════════════════════════
+
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v2.53.0
+    container_name: movie-booking-prometheus
+    hostname: prometheus
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml.template:ro
+      - prometheus_data:/prometheus
+    environment:
+      ALERT_CPU_THRESHOLD: ${ALERT_CPU_THRESHOLD:-80}
+      ALERT_RAM_THRESHOLD: ${ALERT_RAM_THRESHOLD:-80}
+      ALERT_DISK_THRESHOLD: ${ALERT_DISK_THRESHOLD:-85}
+      ALERT_5XX_RATE_THRESHOLD: ${ALERT_5XX_RATE_THRESHOLD:-0.05}
+      ALERT_LATENCY_P95_THRESHOLD: ${ALERT_LATENCY_P95_THRESHOLD:-3}
+      ALERT_CONTAINER_CPU_THRESHOLD: ${ALERT_CONTAINER_CPU_THRESHOLD:-80}
+      ALERT_CONTAINER_RAM_THRESHOLD: ${ALERT_CONTAINER_RAM_THRESHOLD:-85}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        sed -e "s|__ALERT_CPU_THRESHOLD__|$${ALERT_CPU_THRESHOLD:-80}|g" \
+            -e "s|__ALERT_RAM_THRESHOLD__|$${ALERT_RAM_THRESHOLD:-80}|g" \
+            -e "s|__ALERT_DISK_THRESHOLD__|$${ALERT_DISK_THRESHOLD:-85}|g" \
+            -e "s|__ALERT_5XX_RATE_THRESHOLD__|$${ALERT_5XX_RATE_THRESHOLD:-0.05}|g" \
+            -e "s|__ALERT_LATENCY_P95_THRESHOLD__|$${ALERT_LATENCY_P95_THRESHOLD:-3}|g" \
+            -e "s|__ALERT_CONTAINER_CPU_THRESHOLD__|$${ALERT_CONTAINER_CPU_THRESHOLD:-80}|g" \
+            -e "s|__ALERT_CONTAINER_RAM_THRESHOLD__|$${ALERT_CONTAINER_RAM_THRESHOLD:-85}|g" \
+            /etc/prometheus/alert-rules.yml.template > /etc/prometheus/alert-rules.yml
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=15d --web.enable-lifecycle
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:11.1.0
+    container_name: movie-booking-grafana
+    hostname: grafana
+    ports:
+      - '3001:3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  alertmanager:
+    profiles: ["monitoring"]
+    image: prom/alertmanager:v0.27.0
+    container_name: movie-booking-alertmanager
+    hostname: alertmanager
+    ports:
+      - '9093:9093'
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    environment:
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/PLACEHOLDER}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        sed "s|SLACK_WEBHOOK_PLACEHOLDER|$${SLACK_WEBHOOK_URL}|g" /etc/alertmanager/alertmanager.yml > /tmp/alertmanager.yml
+        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  loki:
+    profiles: ["monitoring"]
+    image: grafana/loki:2.9.8
+    container_name: movie-booking-loki
+    hostname: loki
+    ports:
+      - '3100:3100'
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/config.yml
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  promtail:
+    profiles: ["monitoring"]
+    image: grafana/promtail:2.9.8
+    container_name: movie-booking-promtail
+    hostname: promtail
+    volumes:
+      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  node-exporter:
+    profiles: ["monitoring"]
+    image: prom/node-exporter:v1.8.1
+    container_name: movie-booking-node-exporter
+    hostname: node-exporter
+    ports:
+      - '9100:9100'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  cadvisor:
+    profiles: ["monitoring"]
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: movie-booking-cadvisor
+    hostname: cadvisor
+    ports:
+      - '8098:8080'
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - app-network
+    restart: unless-stopped
+
 networks:
   app-network:
     driver: bridge
@@ -133,3 +500,6 @@ volumes:
   mysql_data:
   kafka_data:
   redis_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:

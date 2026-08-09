@@ -1,0 +1,74 @@
+# Prometheus Configuration
+# Scrapes Spring Boot services via Docker service names (production)
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+scrape_configs:
+  # ─── Spring Boot Microservices ──────────────────
+  - job_name: 'gateway'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['gateway:8080']
+        labels:
+          application: gateway
+
+  - job_name: 'auth-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['auth-service:5005']
+        labels:
+          application: auth-service
+
+  - job_name: 'booking-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['booking-service:5001']
+        labels:
+          application: booking-service
+
+  - job_name: 'seat-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['seat-service:5002']
+        labels:
+          application: seat-service
+
+  - job_name: 'movie-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['movie-service:5003']
+        labels:
+          application: movie-service
+
+  - job_name: 'payment-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['payment-service:5004']
+        labels:
+          application: payment-service
+
+  - job_name: 'ai-recommender-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['ai-recommender-service:5006']
+        labels:
+          application: ai-recommender-service
+
+  # ─── Infrastructure Exporters ───────────────────
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']

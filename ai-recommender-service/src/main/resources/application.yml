@@ -36,6 +36,29 @@ debezium:
   host: ${DEBEZIUM_HOST:localhost:8083}
   auto-register: false
 
+# Resilience4j — Circuit Breaker + Retry for movie-service REST call
+resilience4j:
+  circuitbreaker:
+    instances:
+      movieService:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 15s
+        permittedNumberOfCallsInHalfOpenState: 3
+        slidingWindowType: COUNT_BASED
+        registerHealthIndicator: true
+  retry:
+    instances:
+      movieService:
+        maxAttempts: 3
+        waitDuration: 500ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        retryExceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - java.net.ConnectException
+
 management:
   endpoints:
     web:
