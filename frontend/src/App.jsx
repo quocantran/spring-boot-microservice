@@ -80,43 +80,43 @@ export default function App() {
     navigate(`/bookings/${bookingId}`)
   }
 
-  function BookingRoute() {
-    const { movieId } = useParams()
-    const location = useLocation()
-    if (!movieId) return <Navigate to="/movies" replace />
-    return (
-      <BookingPage
-        movieId={movieId}
-        initialMovie={location.state?.movie || null}
-        onBack={() => navigate('/movies')}
-        addToast={addToast}
-        onBookingCreated={handleBookingCreated}
-      />
-    )
-  }
+function BookingRoute({ navigate, addToast, handleBookingCreated }) {
+  const { movieId } = useParams()
+  const location = useLocation()
+  if (!movieId) return <Navigate to="/movies" replace />
+  return (
+    <BookingPage
+      movieId={movieId}
+      initialMovie={location.state?.movie || null}
+      onBack={() => navigate('/movies')}
+      addToast={addToast}
+      onBookingCreated={handleBookingCreated}
+    />
+  )
+}
 
-  function BookingDetailRoute() {
-    const { bookingId } = useParams()
-    if (!bookingId) return <Navigate to="/bookings" replace />
-    return (
-      <BookingDetailPage
-        bookingId={bookingId}
-        onBack={() => navigate('/bookings')}
-      />
-    )
-  }
+function BookingDetailRoute({ navigate }) {
+  const { bookingId } = useParams()
+  if (!bookingId) return <Navigate to="/bookings" replace />
+  return (
+    <BookingDetailPage
+      bookingId={bookingId}
+      onBack={() => navigate('/bookings')}
+    />
+  )
+}
 
-  function CreateShowtimeRoute() {
-    const { movieId } = useParams()
-    if (!movieId) return <Navigate to="/movies" replace />
-    return (
-      <CreateShowtimePage
-        movieId={movieId}
-        addToast={addToast}
-        onBack={() => navigate(`/movies/${movieId}/booking`)}
-      />
-    )
-  }
+function CreateShowtimeRoute({ navigate, addToast }) {
+  const { movieId } = useParams()
+  if (!movieId) return <Navigate to="/movies" replace />
+  return (
+    <CreateShowtimePage
+      movieId={movieId}
+      addToast={addToast}
+      onBack={() => navigate(`/movies/${movieId}/booking`)}
+    />
+  )
+}
 
   if (!authChecked) {
     return <div className="loading"><div className="spinner" />Đang kiểm tra phiên đăng nhập...</div>
@@ -145,9 +145,9 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/movies" replace />} />
           <Route path="/movies" element={<MovieListPage onSelectMovie={handleSelectMovie} />} />
-          <Route path="/movies/:movieId/booking" element={<BookingRoute />} />
+          <Route path="/movies/:movieId/booking" element={<BookingRoute navigate={navigate} addToast={addToast} handleBookingCreated={handleBookingCreated} />} />
           <Route path="/bookings" element={<BookingsPage onViewDetail={handleViewDetail} />} />
-          <Route path="/bookings/:bookingId" element={<BookingDetailRoute />} />
+          <Route path="/bookings/:bookingId" element={<BookingDetailRoute navigate={navigate} />} />
 
           {user?.role === 'ADMIN' && (
             <>
@@ -155,7 +155,7 @@ export default function App() {
                 path="/movies/new"
                 element={<CreateMoviePage addToast={addToast} onBack={() => navigate('/movies')} />}
               />
-              <Route path="/movies/:movieId/showtimes/new" element={<CreateShowtimeRoute />} />
+              <Route path="/movies/:movieId/showtimes/new" element={<CreateShowtimeRoute navigate={navigate} addToast={addToast} />} />
             </>
           )}
 

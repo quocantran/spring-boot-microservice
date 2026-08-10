@@ -76,19 +76,28 @@ public class RecommenderServiceImpl implements RecommenderService {
     private void seedEmbeddingsIfEmpty() {
         long count = embeddingRepository.count();
         if (count > 0) return;
+        syncEmbeddingsFromMovieService();
+    }
 
+    private void syncEmbeddingsFromMovieService() {
         try {
             List<Map<String, Object>> movies = fetchAllMovies();
             if (movies.isEmpty()) return;
 
             for (Map<String, Object> movie : movies) {
                 try {
-                    generateAndSaveEmbedding(
-                            (String) movie.get("id"),
-                            (String) movie.get("title"),
-                            (String) movie.get("genre"),
-                            (String) movie.get("description")
-                    );
+                    String id = (String) movie.get("id");
+                    String title = (String) movie.get("title");
+                    String genre = (String) movie.get("genre");
+                    String description = (String) movie.get("description");
+                    if (id != null && title != null) {
+                        generateAndSaveEmbedding(
+                                id,
+                                title,
+                                genre != null ? genre : "",
+                                description != null ? description : ""
+                        );
+                    }
                 } catch (Exception e) {
                     log.warn("Failed to seed embedding for movie: {}", movie.get("id"));
                 }
@@ -190,6 +199,21 @@ public class RecommenderServiceImpl implements RecommenderService {
                     genreCount.merge(g.trim(), 1, Integer::sum);
                 }
             });
+        }
+
+        if (watchedEmbeddings.isEmpty() || embeddingRepository.count() == 0) {
+            syncEmbeddingsFromMovieService();
+            for (String movieId : watchedMovieIds) {
+                embeddingRepository.findById(movieId).ifPresent(emb -> {
+                    if (!watchedEmbeddings.contains(emb)) {
+                        watchedEmbeddings.add(emb);
+                        List<String> genres = parseGenres(emb.getGenres());
+                        for (String g : genres) {
+                            genreCount.merge(g.trim(), 1, Integer::sum);
+                        }
+                    }
+                });
+            }
         }
 
         if (watchedEmbeddings.isEmpty()) return emptyResult;
