@@ -7,6 +7,7 @@ import com.moviebooking.common.exception.CustomExceptions.BadRequestException;
 import com.moviebooking.common.exception.CustomExceptions.NotFoundException;
 import com.moviebooking.common.outbox.OutboxService;
 import com.moviebooking.common.outbox.OutboxService.OutboxEventData;
+import com.moviebooking.common.redis.RedisLockService;
 import com.moviebooking.movie.dto.CreateMovieRequest;
 import com.moviebooking.movie.dto.CreateShowtimeRequest;
 import com.moviebooking.movie.dto.CreateShowtimeResponse;
@@ -19,9 +20,11 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -29,10 +32,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -43,31 +49,72 @@ public class MovieServiceImpl implements MovieService {
     private final ShowtimeRepository showtimeRepository;
     private final OutboxService outboxService;
     private final RestTemplate restTemplate;
+    private final RedisLockService redisLockService;
+
+    @Autowired(required = false)
+    @Qualifier("cacheRedisTemplate")
+    private RedisTemplate<String, Object> cacheRedisTemplate;
 
     @Value("${seat-service.url:http://localhost:5002}")
     private String seatServiceUrl;
 
+    // Chống Cache Penetration bằng marker null
+    private static final String CACHE_NULL_SENTINEL = "__CACHE_NULL__";
+
+    // TTL cơ bản cho cache phim (10 phút)
+    private static final Duration MOVIES_BASE_TTL = Duration.ofMinutes(10);
+
+    // TTL cơ bản cho cache lịch chiếu (5 phút)
+    private static final Duration SHOWTIMES_BASE_TTL = Duration.ofMinutes(5);
+
+    // TTL ngắn cho giá trị null (2 phút)
+    private static final Duration NULL_VALUE_TTL = Duration.ofMinutes(2);
+
+    // Chống Cache Avalanche bằng random TTL jitter tối đa 120s
+    private static final long TTL_JITTER_MAX_SECONDS = 120;
+
+    // Chống Cache Breakdown bằng Distributed Lock 3s
+    private static final long CACHE_LOCK_TTL_MS = 3000;
+
+    // Thời gian chờ retry khi thua lock (100ms)
+    private static final long CACHE_LOCK_RETRY_DELAY_MS = 100;
+
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "movies", key = "'all'")
     public List<MovieEntity> findAllMovies() {
-        return movieRepository.findAllByOrderByCreatedAtDesc();
+        return loadThroughCache(
+                "movies::all",
+                "lock:cache:movies:all",
+                MOVIES_BASE_TTL,
+                () -> movieRepository.findAllByOrderByCreatedAtDesc()
+        );
     }
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "movies", key = "#id")
     public MovieEntity findMovieById(String id) {
-        return movieRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy phim với ID: " + id));
+        MovieEntity movie = loadThroughCache(
+                "movies::" + id,
+                "lock:cache:movies:" + id,
+                MOVIES_BASE_TTL,
+                () -> movieRepository.findById(id).orElse(null)
+        );
+        if (movie == null) {
+            throw new NotFoundException("Không tìm thấy phim với ID: " + id);
+        }
+        return movie;
     }
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "showtimes", key = "#movieId")
     public List<ShowtimeEntity> findShowtimesByMovieId(String movieId) {
-        findMovieById(movieId); // Ensures movie exists
-        return showtimeRepository.findByMovieIdOrderByStartTimeAsc(movieId);
+        findMovieById(movieId);
+        return loadThroughCache(
+                "showtimes::" + movieId,
+                "lock:cache:showtimes:" + movieId,
+                SHOWTIMES_BASE_TTL,
+                () -> showtimeRepository.findByMovieIdOrderByStartTimeAsc(movieId)
+        );
     }
 
     @Override
@@ -160,10 +207,7 @@ public class MovieServiceImpl implements MovieService {
                 .build();
     }
 
-    /**
-     * Inter-service REST call to seat-service.
-     * Protected by Resilience4j Circuit Breaker + Retry.
-     */
+    // REST call sang seat-service bảo vệ bằng Circuit Breaker + Retry
     @CircuitBreaker(name = "seatService", fallbackMethod = "generateSeatsFallback")
     @Retry(name = "seatService")
     public int generateSeatsForShowtime(String showtimeId) {
@@ -181,12 +225,83 @@ public class MovieServiceImpl implements MovieService {
         return seatsGenerated;
     }
 
-    /**
-     * Fallback when seat-service circuit is open or call fails after retries.
-     */
+    // Fallback khi circuit breaker mở hoặc retry thất bại
     public int generateSeatsFallback(String showtimeId, Exception ex) {
         log.warn("Seat generation failed for showtimeId: {}. Circuit Breaker fallback activated. Error: {}",
                 showtimeId, ex.getMessage());
         return 0;
+    }
+
+    // Hàm nạp Cache-Aside tổng quát với Distributed Lock, TTL Jitter và Cache Null
+    @SuppressWarnings("unchecked")
+    private <T> T loadThroughCache(String cacheKey, String lockKey, Duration baseTtl, Supplier<T> dbLoader) {
+        if (cacheRedisTemplate == null) {
+            return dbLoader.get();
+        }
+
+        try {
+            // Bước 1: Đọc từ Redis Cache
+            Object cached = cacheRedisTemplate.opsForValue().get(cacheKey);
+            if (cached != null) {
+                if (CACHE_NULL_SENTINEL.equals(cached)) {
+                    log.debug("[Anti Penetration] Cache hit null sentinel -> key: {}", cacheKey);
+                    return null;
+                }
+                log.debug("[Cache HIT] key: {}", cacheKey);
+                return (T) cached;
+            }
+
+            // Bước 2: Cache Miss -> Xin Redis Distributed Lock (chống Cache Breakdown trên K8s)
+            String lockToken = redisLockService.acquireLock(lockKey, CACHE_LOCK_TTL_MS);
+
+            if (lockToken == null) {
+                log.debug("[Anti Breakdown] Lock contention -> key: {}, waiting {}ms", cacheKey, CACHE_LOCK_RETRY_DELAY_MS);
+                try {
+                    Thread.sleep(CACHE_LOCK_RETRY_DELAY_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+
+                cached = cacheRedisTemplate.opsForValue().get(cacheKey);
+                if (cached != null) {
+                    if (CACHE_NULL_SENTINEL.equals(cached)) return null;
+                    return (T) cached;
+                }
+
+                return dbLoader.get();
+            }
+
+            try {
+                // Bước 3: Lock acquired -> Double check cache
+                cached = cacheRedisTemplate.opsForValue().get(cacheKey);
+                if (cached != null) {
+                    if (CACHE_NULL_SENTINEL.equals(cached)) return null;
+                    return (T) cached;
+                }
+
+                // Bước 4: Chỉ 1 Pod K8s duy nhất vào đây query DB
+                T result = dbLoader.get();
+
+                // Bước 5: Ghi kết quả vào Redis với TTL Jitter hoặc Marker Null
+                if (result == null) {
+                    cacheRedisTemplate.opsForValue().set(cacheKey, CACHE_NULL_SENTINEL, NULL_VALUE_TTL);
+                    log.debug("[Anti Penetration] Cached null sentinel -> key: {}", cacheKey);
+                } else {
+                    long jitterSeconds = ThreadLocalRandom.current().nextLong(0, TTL_JITTER_MAX_SECONDS);
+                    Duration jitteredTtl = baseTtl.plusSeconds(jitterSeconds);
+                    cacheRedisTemplate.opsForValue().set(cacheKey, result, jitteredTtl);
+                    log.debug("[Cache SET] key: {} with TTL: {}", cacheKey, jitteredTtl);
+                }
+
+                return result;
+            } finally {
+                // Bước 6: Giải phóng Distributed Lock
+                redisLockService.releaseLock(lockKey, lockToken);
+            }
+
+        } catch (Exception e) {
+            log.warn("[Cache] Redis error -> key: {}, fallback to DB: {}", cacheKey, e.getMessage());
+            return dbLoader.get();
+        }
     }
 }
