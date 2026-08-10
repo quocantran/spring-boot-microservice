@@ -355,6 +355,16 @@ services:
     hostname: prometheus
     ports:
       - '9090:9090'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "gateway:host-gateway"
+      - "auth-service:host-gateway"
+      - "booking-service:host-gateway"
+      - "seat-service:host-gateway"
+      - "movie-service:host-gateway"
+      - "payment-service:host-gateway"
+      - "ai-recommender-service:host-gateway"
+      - "alertmanager:host-gateway"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml.template:ro
@@ -443,9 +453,11 @@ services:
 
   promtail:
     profiles: ["monitoring"]
-    image: grafana/promtail:2.9.8
+    image: grafana/promtail:3.1.0
     container_name: movie-booking-promtail
     hostname: promtail
+    environment:
+      DOCKER_API_VERSION: "1.44"
     volumes:
       - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro

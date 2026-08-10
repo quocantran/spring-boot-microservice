@@ -58,8 +58,10 @@ public class RecommenderKafkaConsumer {
 
             if (eventType == null || eventId == null) return;
 
-            // Only process MOVIE_CREATED and BOOKING_CONFIRMED
-            if (!Events.MOVIE_CREATED.equals(eventType) && !Events.BOOKING_CONFIRMED.equals(eventType)) {
+            // Process MOVIE_CREATED, BOOKING_CONFIRMED, and BOOKING_CREATED
+            if (!Events.MOVIE_CREATED.equals(eventType) &&
+                !Events.BOOKING_CONFIRMED.equals(eventType) &&
+                !Events.BOOKING_CREATED.equals(eventType)) {
                 return;
             }
 
@@ -77,11 +79,17 @@ public class RecommenderKafkaConsumer {
                                 payload.getDescription()
                         );
                         log.info("Processed MOVIE_CREATED: movieId={}, title={}", payload.getMovieId(), payload.getTitle());
-                    } else if (Events.BOOKING_CONFIRMED.equals(eventType)) {
-                        BookingConfirmedPayload payload = objectMapper.readValue(payloadJson, BookingConfirmedPayload.class);
-                        if (payload.getUserId() != null) {
-                            recommenderService.saveUserBehavior(payload.getUserId(), payload.getMovieId());
-                            log.info("Processed BOOKING_CONFIRMED: userId={}, movieId={}", payload.getUserId(), payload.getMovieId());
+                    } else if (Events.BOOKING_CONFIRMED.equals(eventType) || Events.BOOKING_CREATED.equals(eventType)) {
+                        String userId = null;
+                        String movieId = null;
+                        if (payloadObj instanceof Map) {
+                            Map<?, ?> pMap = (Map<?, ?>) payloadObj;
+                            userId = (String) pMap.get("userId");
+                            movieId = (String) pMap.get("movieId");
+                        }
+                        if (userId != null && movieId != null) {
+                            recommenderService.saveUserBehavior(userId, movieId);
+                            log.info("Processed {}: userId={}, movieId={}", eventType, userId, movieId);
                         }
                     }
                 } catch (Exception e) {

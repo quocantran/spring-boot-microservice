@@ -65,12 +65,27 @@ public class EmbeddingServiceImpl implements EmbeddingService {
         }
 
         try {
-            if (!initialized) loadTokenizer();
+            if (!initialized) {
+                try {
+                    loadTokenizer();
+                } catch (Exception e) {
+                    log.warn("EmbeddingService: Tokenizer unavailable, using deterministic word-hash projection fallback");
+                }
+            }
 
             String truncated = text.length() > MAX_TEXT_LENGTH ? text.substring(0, MAX_TEXT_LENGTH) : text;
 
-            Encoding encoding = tokenizer.encode(truncated);
-            long[] tokenIds = encoding.getIds();
+            long[] tokenIds;
+            if (tokenizer != null) {
+                Encoding encoding = tokenizer.encode(truncated);
+                tokenIds = encoding.getIds();
+            } else {
+                String[] words = truncated.toLowerCase().split("\\s+");
+                tokenIds = new long[words.length];
+                for (int i = 0; i < words.length; i++) {
+                    tokenIds[i] = (long) words[i].hashCode();
+                }
+            }
 
             // Generate embedding using token hash projection (deterministic, fast)
             float[] embedding = new float[EMBEDDING_DIM];
