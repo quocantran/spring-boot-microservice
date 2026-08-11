@@ -64,6 +64,9 @@ public class TopupServiceImpl implements TopupService {
     }
 
     private String createSignature(String data) {
+        if (payosChecksumKey == null || payosChecksumKey.trim().isEmpty()) {
+            throw new BadRequestException("Chưa cấu hình PAYOS_CHECKSUM_KEY trong hệ thống");
+        }
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             SecretKeySpec keySpec = new SecretKeySpec(payosChecksumKey.getBytes(StandardCharsets.UTF_8), "HmacSHA256");

@@ -17,6 +17,13 @@ echo -e "${CYAN}====================================================${NC}"
 echo -e "${CYAN} 🎬 Starting Movie Booking Platform (Dev Mode)      ${NC}"
 echo -e "${CYAN}====================================================${NC}"
 
+if [ -f .env ]; then
+    echo -e "${GREEN}📄 Loading environment variables from .env...${NC}"
+    set -a
+    source .env
+    set +a
+fi
+
 echo -e "${GREEN}🚀 [1/3] Starting Infrastructure in Docker (MySQL, Redis, Kafka, Debezium)...${NC}"
 docker compose up -d mysql redis kafka debezium kafka-ui
 

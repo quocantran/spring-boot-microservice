@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moviebooking.recommender.dto.GenreSection;
 import com.moviebooking.recommender.dto.GroupedRecommendations;
+import com.moviebooking.recommender.dto.ParsedEmbedding;
 import com.moviebooking.recommender.dto.RecommendedMovie;
 import com.moviebooking.recommender.entity.MovieEmbeddingEntity;
 import com.moviebooking.recommender.entity.UserBehaviorEntity;
@@ -25,6 +26,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -42,7 +46,7 @@ public class RecommenderServiceImpl implements RecommenderService {
     private String movieServiceUrl;
 
     // ======================== SCORING CONSTANTS ========================
-    // Matching NestJS RecommenderService exactly
+    // Scoring tiers matching recommendation strategy
 
     private static final double[][] COSINE_BONUS_TIERS = {
             {0.8, 0.10},
@@ -60,17 +64,17 @@ public class RecommenderServiceImpl implements RecommenderService {
 
     // ======================== STARTUP SEED ========================
 
+    // Triggers embedding seed asynchronously using a lightweight Virtual Thread.
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
-        // Delayed seed (matching NestJS setTimeout 10s)
-        new Thread(() -> {
+        Thread.startVirtualThread(() -> {
             try {
                 Thread.sleep(10000);
                 seedEmbeddingsIfEmpty();
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
-        }).start();
+        });
     }
 
     private void seedEmbeddingsIfEmpty() {
@@ -79,30 +83,47 @@ public class RecommenderServiceImpl implements RecommenderService {
         syncEmbeddingsFromMovieService();
     }
 
+    // Syncs movie embeddings concurrently using a Virtual Thread per-task executor.
     private void syncEmbeddingsFromMovieService() {
         try {
             List<Map<String, Object>> movies = fetchAllMovies();
             if (movies.isEmpty()) return;
 
-            for (Map<String, Object> movie : movies) {
-                try {
-                    String id = (String) movie.get("id");
-                    String title = (String) movie.get("title");
-                    String genre = (String) movie.get("genre");
-                    String description = (String) movie.get("description");
-                    if (id != null && title != null) {
-                        generateAndSaveEmbedding(
-                                id,
-                                title,
-                                genre != null ? genre : "",
-                                description != null ? description : ""
-                        );
+            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                List<Future<?>> futures = new ArrayList<>();
+
+                for (Map<String, Object> movie : movies) {
+                    futures.add(executor.submit(() -> {
+                        try {
+                            String id = (String) movie.get("id");
+                            String title = (String) movie.get("title");
+                            String genre = (String) movie.get("genre");
+                            String description = (String) movie.get("description");
+                            if (id != null && title != null) {
+                                generateAndSaveEmbedding(
+                                        id,
+                                        title,
+                                        genre != null ? genre : "",
+                                        description != null ? description : ""
+                                );
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to seed embedding for movie: {}", movie.get("id"));
+                        }
+                    }));
+                }
+
+                // Awaits completion of all seed tasks with 60s timeout.
+                for (Future<?> f : futures) {
+                    try {
+                        f.get(60, TimeUnit.SECONDS);
+                    } catch (Exception e) {
+                        log.warn("Seed task timed out or failed: {}", e.getMessage());
                     }
-                } catch (Exception e) {
-                    log.warn("Failed to seed embedding for movie: {}", movie.get("id"));
                 }
             }
-            log.info("Seeded {} movie embeddings", embeddingRepository.count());
+
+            log.info("Seeded {} movie embeddings (parallel Virtual Threads)", embeddingRepository.count());
         } catch (Exception e) {
             log.warn("Failed to seed embeddings: {}", e.getMessage());
         }
@@ -154,7 +175,7 @@ public class RecommenderServiceImpl implements RecommenderService {
     @Transactional
     public void saveUserBehavior(String userId, String movieId) {
         Optional<UserBehaviorEntity> existing = behaviorRepository.findByUserIdAndMovieId(userId, movieId);
-        if (existing.isPresent()) return; // Idempotent
+        if (existing.isPresent()) return; // Idempotent check
 
         UserBehaviorEntity behavior = UserBehaviorEntity.builder()
                 .id(UUID.randomUUID().toString())
@@ -171,6 +192,7 @@ public class RecommenderServiceImpl implements RecommenderService {
         return behaviorRepository.findByUserIdOrderByCreatedAtDesc(userId);
     }
 
+    // Retrieves grouped recommendations optimized with batch queries and parallel scoring.
     @Override
     @Transactional(readOnly = true)
     public GroupedRecommendations getRecommendationsGrouped(String userId, int limit) {
@@ -187,67 +209,65 @@ public class RecommenderServiceImpl implements RecommenderService {
                 .map(UserBehaviorEntity::getMovieId)
                 .collect(Collectors.toSet());
 
-        // Load embeddings of watched movies & count genres
-        List<MovieEmbeddingEntity> watchedEmbeddings = new ArrayList<>();
-        Map<String, Integer> genreCount = new LinkedHashMap<>();
+        // Batch fetch watched embeddings in a single SQL query.
+        List<MovieEmbeddingEntity> watchedEmbeddings = embeddingRepository.findAllById(watchedMovieIds);
 
-        for (String movieId : watchedMovieIds) {
-            embeddingRepository.findById(movieId).ifPresent(emb -> {
-                watchedEmbeddings.add(emb);
+        // Count genre frequencies from watched movies.
+        Map<String, Integer> genreCount = new LinkedHashMap<>();
+        for (MovieEmbeddingEntity emb : watchedEmbeddings) {
+            List<String> genres = parseGenres(emb.getGenres());
+            for (String g : genres) {
+                genreCount.merge(g.trim(), 1, Integer::sum);
+            }
+        }
+
+        // Fallback: sync embeddings from movie-service if missing.
+        if (watchedEmbeddings.isEmpty() || embeddingRepository.count() == 0) {
+            syncEmbeddingsFromMovieService();
+            watchedEmbeddings = embeddingRepository.findAllById(watchedMovieIds);
+            for (MovieEmbeddingEntity emb : watchedEmbeddings) {
                 List<String> genres = parseGenres(emb.getGenres());
                 for (String g : genres) {
                     genreCount.merge(g.trim(), 1, Integer::sum);
                 }
-            });
-        }
-
-        if (watchedEmbeddings.isEmpty() || embeddingRepository.count() == 0) {
-            syncEmbeddingsFromMovieService();
-            for (String movieId : watchedMovieIds) {
-                embeddingRepository.findById(movieId).ifPresent(emb -> {
-                    if (!watchedEmbeddings.contains(emb)) {
-                        watchedEmbeddings.add(emb);
-                        List<String> genres = parseGenres(emb.getGenres());
-                        for (String g : genres) {
-                            genreCount.merge(g.trim(), 1, Integer::sum);
-                        }
-                    }
-                });
             }
         }
 
         if (watchedEmbeddings.isEmpty()) return emptyResult;
 
-        // Sort genres by frequency (most watched first)
+        // Sort genres by frequency descending.
         List<String> sortedGenres = genreCount.entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toList());
 
-        // Score ALL non-watched movies
+        // Pre-parse watched embeddings once to eliminate redundant JSON parsing.
+        List<ParsedEmbedding> parsedWatched = watchedEmbeddings.stream()
+                .map(w -> new ParsedEmbedding(parseEmbedding(w.getEmbedding()), parseGenres(w.getGenres())))
+                .toList();
+
+        // Compute similarity scores in parallel across all CPU cores.
         List<MovieEmbeddingEntity> allEmbeddings = embeddingRepository.findAll();
-        List<RecommendedMovie> allScored = new ArrayList<>();
 
-        for (MovieEmbeddingEntity emb : allEmbeddings) {
-            if (watchedMovieIds.contains(emb.getMovieId())) continue;
-
-            double[] scores = calculateCombinedScore(emb, watchedEmbeddings);
-            allScored.add(RecommendedMovie.builder()
-                    .movieId(emb.getMovieId())
-                    .title(emb.getTitle())
-                    .genres(parseGenres(emb.getGenres()))
-                    .similarityScore(scores[0])
-                    .cosineScore(scores[1])
-                    .jaccardScore(scores[2])
-                    .build());
-        }
-
-        // Sort by combined score descending
-        allScored.sort((a, b) -> Double.compare(b.getSimilarityScore(), a.getSimilarityScore()));
+        List<RecommendedMovie> allScored = allEmbeddings.parallelStream()
+                .filter(emb -> !watchedMovieIds.contains(emb.getMovieId()))
+                .map(emb -> {
+                    double[] scores = calculateCombinedScoreOptimized(emb, parsedWatched);
+                    return RecommendedMovie.builder()
+                            .movieId(emb.getMovieId())
+                            .title(emb.getTitle())
+                            .genres(parseGenres(emb.getGenres()))
+                            .similarityScore(scores[0])
+                            .cosineScore(scores[1])
+                            .jaccardScore(scores[2])
+                            .build();
+                })
+                .sorted((a, b) -> Double.compare(b.getSimilarityScore(), a.getSimilarityScore()))
+                .toList();
 
         List<RecommendedMovie> topPicks = allScored.stream().limit(limit).collect(Collectors.toList());
 
-        // Build per-genre sections
+        // Build per-genre recommendation sections.
         List<GenreSection> genreSections = new ArrayList<>();
         for (String genre : sortedGenres) {
             List<RecommendedMovie> genreMovies = allScored.stream()
@@ -273,11 +293,38 @@ public class RecommenderServiceImpl implements RecommenderService {
 
     // ======================== SCORING ALGORITHM ========================
 
-    /**
-     * Calculates combined similarity score = 60% avgCosine + 40% avgJaccard + tier bonuses.
-     * Returns [combinedScore, cosineScore, jaccardScore] (all rounded to 4 decimals).
-     * Matches NestJS RecommenderService.calculateCombinedScore exactly.
-     */
+    // Calculates combined score (60% cosine + 40% jaccard) using pre-parsed embeddings.
+    private double[] calculateCombinedScoreOptimized(MovieEmbeddingEntity candidate, List<ParsedEmbedding> parsedWatched) {
+        double totalCosine = 0;
+        double totalJaccard = 0;
+
+        List<Float> candidateEmb = parseEmbedding(candidate.getEmbedding());
+        List<String> candidateGenres = parseGenres(candidate.getGenres());
+
+        for (ParsedEmbedding watched : parsedWatched) {
+            totalCosine += embeddingService.cosineSimilarity(candidateEmb, watched.embedding());
+            totalJaccard += jaccardSimilarity(candidateGenres, watched.genres());
+        }
+
+        double avgCosine = totalCosine / parsedWatched.size();
+        double avgJaccard = totalJaccard / parsedWatched.size();
+
+        double baseScore = 0.6 * avgCosine + 0.4 * avgJaccard;
+
+        double cosineBonus = getTierBonus(avgCosine, COSINE_BONUS_TIERS);
+        double jaccardBonus = getTierBonus(avgJaccard, JACCARD_BONUS_TIERS);
+
+        double rawScore = baseScore + cosineBonus + jaccardBonus;
+        double normalizedScore = rawScore / MAX_RAW_SCORE;
+
+        return new double[]{
+                Math.round(normalizedScore * 10000.0) / 10000.0,
+                Math.round(avgCosine * 10000.0) / 10000.0,
+                Math.round(avgJaccard * 10000.0) / 10000.0,
+        };
+    }
+
+    // Calculates combined score (60% cosine + 40% jaccard) using raw entities.
     private double[] calculateCombinedScore(MovieEmbeddingEntity candidate, List<MovieEmbeddingEntity> watchedEmbeddings) {
         double totalCosine = 0;
         double totalJaccard = 0;
@@ -351,10 +398,7 @@ public class RecommenderServiceImpl implements RecommenderService {
         }
     }
 
-    /**
-     * Inter-service REST call to movie-service.
-     * Protected by Resilience4j Circuit Breaker + Retry.
-     */
+    // Inter-service REST call to movie-service protected by Resilience4j CircuitBreaker and Retry.
     @SuppressWarnings("unchecked")
     @CircuitBreaker(name = "movieService", fallbackMethod = "fetchAllMoviesFallback")
     @Retry(name = "movieService")
@@ -366,9 +410,7 @@ public class RecommenderServiceImpl implements RecommenderService {
         return Collections.emptyList();
     }
 
-    /**
-     * Fallback when movie-service is unavailable.
-     */
+    // Fallback method when movie-service REST call fails.
     public List<Map<String, Object>> fetchAllMoviesFallback(Exception ex) {
         log.warn("Movie-service unavailable. Circuit Breaker fallback activated: {}", ex.getMessage());
         return Collections.emptyList();
