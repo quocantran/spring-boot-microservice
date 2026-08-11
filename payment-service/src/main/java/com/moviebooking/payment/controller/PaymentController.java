@@ -4,11 +4,15 @@ import com.moviebooking.common.auth.Authenticated;
 import com.moviebooking.common.auth.JwtAuthFilter;
 import com.moviebooking.common.auth.JwtPayload;
 import com.moviebooking.payment.entity.WalletEntity;
+import com.moviebooking.payment.realtime.WalletRealtimePublisher;
+import com.moviebooking.payment.realtime.WalletSseManager;
 import com.moviebooking.payment.repository.WalletRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
@@ -21,6 +25,8 @@ import java.util.Optional;
 public class PaymentController {
 
     private final WalletRepository walletRepository;
+    private final WalletSseManager walletSseManager;
+    private final WalletRealtimePublisher walletRealtimePublisher;
 
     private static final BigDecimal DEFAULT_WALLET_BALANCE = BigDecimal.valueOf(200000);
 
@@ -34,6 +40,25 @@ public class PaymentController {
         result.put("userId", user.getSub());
         result.put("balance", walletOpt.map(w -> w.getBalance().doubleValue()).orElse(0.0));
         return ResponseEntity.ok(result);
+    }
+
+    @GetMapping(value = "/wallets/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamWalletBalance(
+            HttpServletRequest request,
+            @RequestParam(value = "userId", required = false) String userId,
+            @RequestHeader(value = "X-User-Id", required = false) String headerUserId
+    ) {
+        String targetUserId = userId;
+        if (targetUserId == null || targetUserId.trim().isEmpty()) {
+            targetUserId = headerUserId;
+        }
+        if (targetUserId == null || targetUserId.trim().isEmpty()) {
+            JwtPayload user = (JwtPayload) request.getAttribute(JwtAuthFilter.USER_ATTRIBUTE);
+            if (user != null) {
+                targetUserId = user.getSub();
+            }
+        }
+        return walletSseManager.createUserEmitter(targetUserId);
     }
 
     @PostMapping("/wallets")
@@ -58,6 +83,7 @@ public class PaymentController {
                 .balance(initialBalance)
                 .build();
         walletRepository.save(wallet);
+        walletRealtimePublisher.publishWalletUpdate(userId, initialBalance.doubleValue());
 
         result.put("userId", userId);
         result.put("balance", initialBalance.doubleValue());

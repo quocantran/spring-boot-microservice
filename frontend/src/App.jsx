@@ -50,8 +50,28 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     fetchWalletBalance()
-    const interval = setInterval(fetchWalletBalance, 10000)
-    return () => clearInterval(interval)
+
+    // Real-time SSE stream for wallet balance updates
+    const token = getToken()
+    if (!token) return
+
+    const streamUrl = `/api/wallets/stream?token=${encodeURIComponent(token)}`
+    const es = new EventSource(streamUrl)
+
+    es.addEventListener('wallet-update', (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data && data.balance !== undefined) {
+          setWalletBalance(data.balance)
+        }
+      } catch (err) {
+        console.error('Failed to parse SSE wallet-update:', err)
+      }
+    })
+
+    return () => {
+      es.close()
+    }
   }, [user, fetchWalletBalance])
 
   const handleLogin = (userData) => setUser(userData)

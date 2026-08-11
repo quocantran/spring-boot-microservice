@@ -11,24 +11,48 @@ export default function BookingDetailPage({ bookingId, onBack }) {
 
   const fetchBooking = useCallback(() => {
     apiFetch(`/bookings/${bookingId}`).then(({ data }) => {
-      setBooking(data)
-      setLoading(false)
-      if (data && (data.status === 'CONFIRMED' || data.status === 'CANCELLED')) {
-        if (intervalRef.current) clearInterval(intervalRef.current)
-      }
-      if (data?.movieId && !movie) {
-        apiFetch(`/movies/${data.movieId}`).then(({ ok, data: m }) => {
-          if (ok && m) setMovie(m)
-        })
+      if (data) {
+        setBooking(data)
+        setLoading(false)
+        if (data.movieId && !movie) {
+          apiFetch(`/movies/${data.movieId}`).then(({ ok, data: m }) => {
+            if (ok && m) setMovie(m)
+          })
+        }
       }
     })
-  }, [bookingId])
+  }, [bookingId, movie])
 
   useEffect(() => {
     fetchBooking()
-    intervalRef.current = setInterval(fetchBooking, 2000)
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [fetchBooking])
+
+    // Real-time SSE for live booking status updates (Secured via JWT token query parameter)
+    const token = localStorage.getItem('token')
+    const streamUrl = token ? `/api/bookings/${bookingId}/stream?token=${encodeURIComponent(token)}` : `/api/bookings/${bookingId}/stream`
+    const es = new EventSource(streamUrl)
+
+    es.addEventListener('booking-update', (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data) {
+          setBooking(data)
+          if (data.status === 'CONFIRMED' || data.status === 'CANCELLED') {
+            es.close()
+          }
+        }
+      } catch (err) {
+        console.error('Failed to parse SSE booking-update:', err)
+      }
+    })
+
+    es.onerror = () => {
+      // EventSource auto-reconnects
+    }
+
+    return () => {
+      es.close()
+    }
+  }, [bookingId, fetchBooking])
 
   if (loading) return <div className="loading"><div className="spinner" />Đang tải thông tin vé...</div>
   if (!booking) return <div className="loading">Không tìm thấy đơn đặt vé</div>

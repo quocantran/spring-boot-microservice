@@ -30,6 +30,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final WalletRepository walletRepository;
     private final PaymentRepository paymentRepository;
     private final OutboxService outboxService;
+    private final com.moviebooking.payment.realtime.WalletRealtimePublisher walletRealtimePublisher;
 
     @Override
     @Transactional
@@ -106,6 +107,7 @@ public class PaymentServiceImpl implements PaymentService {
         BigDecimal newBalance = balance.subtract(amount);
         wallet.setBalance(newBalance);
         walletRepository.save(wallet);
+        walletRealtimePublisher.publishWalletUpdate(userId, newBalance.doubleValue());
 
         String paymentId = UUID.randomUUID().toString();
         PaymentEntity payment = PaymentEntity.builder()

@@ -27,8 +27,8 @@ fi
 echo -e "${GREEN}🚀 [1/3] Starting Infrastructure in Docker (MySQL, Redis, Kafka, Debezium)...${NC}"
 docker compose up -d mysql redis kafka debezium kafka-ui
 
-echo -e "${GREEN}📦 [2/3] Compiling common module...${NC}"
-mvn compile -pl common -DskipTests -q
+echo -e "${GREEN}📦 [2/3] Installing common module...${NC}"
+mvn install -pl common -DskipTests -q
 
 echo -e "${GREEN}🔥 [3/3] Launching 7 Microservices + Frontend (React/Vite :3000) with Hot Reload...${NC}"
 echo -e "${YELLOW}💡 Press Ctrl+C at any time to stop all services.${NC}\n"

@@ -33,6 +33,7 @@ public class TopupServiceImpl implements TopupService {
     private final TopupRepository topupRepository;
     private final WalletRepository walletRepository;
     private final ObjectMapper objectMapper;
+    private final com.moviebooking.payment.realtime.WalletRealtimePublisher walletRealtimePublisher;
     private final RestTemplate restTemplate = new RestTemplate();
 
     @Value("${payos.url:https://api-merchant.payos.vn}")
@@ -251,6 +252,9 @@ public class TopupServiceImpl implements TopupService {
                     .build();
             walletRepository.save(newWallet);
         }
+
+        walletRepository.findById(topup.getUserId()).ifPresent(w ->
+                walletRealtimePublisher.publishWalletUpdate(topup.getUserId(), w.getBalance().doubleValue()));
 
         log.info("Wallet credited: user={}, amount={}, orderCode={}", topup.getUserId(), topup.getAmount(), topup.getOrderCode());
     }

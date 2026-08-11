@@ -24,8 +24,32 @@ export default function BookingsPage({ onViewDetail }) {
 
   useEffect(() => {
     fetchData()
-    const interval = setInterval(fetchData, 5000)
-    return () => clearInterval(interval)
+
+    // Real-time SSE stream for user's booking status updates (Secured via JWT token query parameter)
+    const token = localStorage.getItem('token')
+    const streamUrl = token ? `/api/bookings/stream?token=${encodeURIComponent(token)}` : '/api/bookings/stream'
+    const es = new EventSource(streamUrl)
+
+    es.addEventListener('booking-update', (event) => {
+      try {
+        const updated = JSON.parse(event.data)
+        if (updated) {
+          setBookings(prev => {
+            const exists = prev.some(b => b.id === updated.id)
+            if (exists) {
+              return prev.map(b => b.id === updated.id ? updated : b)
+            }
+            return [updated, ...prev]
+          })
+        }
+      } catch (err) {
+        console.error('Failed to parse SSE booking-update:', err)
+      }
+    })
+
+    return () => {
+      es.close()
+    }
   }, [fetchData])
 
   if (loading) return <div className="loading"><div className="spinner" />Đang tải đơn đặt vé...</div>
@@ -34,7 +58,7 @@ export default function BookingsPage({ onViewDetail }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
         <h1 className="section-title" style={{ marginBottom: 0 }}>📋 Đơn đặt vé</h1>
-        <span className="polling-badge"><span className="polling-dot" /> Tự động cập nhật</span>
+        <span className="sse-badge"><span className="sse-dot" /> Live</span>
       </div>
 
       {bookings.length === 0 ? (

@@ -45,14 +45,16 @@ public class EmbeddingServiceImpl implements EmbeddingService {
         lock.lock();
         try {
             if (initialized) return;
-            // Load all-MiniLM-L6-v2 tokenizer from HuggingFace Hub
-            tokenizer = HuggingFaceTokenizer.newInstance("sentence-transformers/all-MiniLM-L6-v2",
-                    Map.of("maxLength", "512", "padding", "true", "truncation", "true"));
+            try {
+                tokenizer = HuggingFaceTokenizer.newInstance("sentence-transformers/all-MiniLM-L6-v2");
+            } catch (Throwable t) {
+                tokenizer = HuggingFaceTokenizer.newInstance("sentence-transformers/all-MiniLM-L6-v2",
+                        Map.of("maxLength", "512", "padding", "true", "truncation", "true"));
+            }
             initialized = true;
             log.info("EmbeddingService: Tokenizer loaded successfully (all-MiniLM-L6-v2)");
-        } catch (Exception e) {
-            log.error("EmbeddingService: Failed to load tokenizer", e);
-            throw new RuntimeException("Failed to load embedding tokenizer", e);
+        } catch (Throwable t) {
+            log.warn("EmbeddingService: Could not load Hugging Face tokenizer ({}), falling back to deterministic word-hash projection.", t.getMessage());
         } finally {
             lock.unlock();
         }

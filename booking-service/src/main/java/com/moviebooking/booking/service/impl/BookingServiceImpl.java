@@ -3,6 +3,7 @@ package com.moviebooking.booking.service.impl;
 import com.moviebooking.booking.dto.CreateBookingRequest;
 import com.moviebooking.booking.entity.BookingEntity;
 import com.moviebooking.booking.entity.BookingStatus;
+import com.moviebooking.booking.realtime.BookingRealtimePublisher;
 import com.moviebooking.booking.repository.BookingRepository;
 import com.moviebooking.booking.service.BookingService;
 import com.moviebooking.common.constants.BookingConstants;
@@ -28,6 +29,7 @@ public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
     private final OutboxService outboxService;
+    private final BookingRealtimePublisher bookingRealtimePublisher;
 
     @Override
     @Transactional
@@ -49,6 +51,7 @@ public class BookingServiceImpl implements BookingService {
                 .build();
 
         bookingRepository.save(booking);
+        bookingRealtimePublisher.publishBookingUpdate(booking);
 
         BookingCreatedPayload payload = BookingCreatedPayload.builder()
                 .bookingId(bookingId)
@@ -90,6 +93,7 @@ public class BookingServiceImpl implements BookingService {
         bookingRepository.findById(payload.getBookingId()).ifPresent(booking -> {
             booking.setStatus(BookingStatus.SEATS_RESERVED);
             bookingRepository.save(booking);
+            bookingRealtimePublisher.publishBookingUpdate(booking);
         });
     }
 
@@ -101,6 +105,7 @@ public class BookingServiceImpl implements BookingService {
             booking.setStatus(BookingStatus.CANCELLED);
             booking.setFailureReason(payload.getReason());
             bookingRepository.save(booking);
+            bookingRealtimePublisher.publishBookingUpdate(booking);
 
             BookingCancelledPayload outboxPayload = BookingCancelledPayload.builder()
                     .bookingId(payload.getBookingId())
@@ -124,6 +129,7 @@ public class BookingServiceImpl implements BookingService {
         bookingRepository.findById(payload.getBookingId()).ifPresent(booking -> {
             booking.setStatus(BookingStatus.CONFIRMED);
             bookingRepository.save(booking);
+            bookingRealtimePublisher.publishBookingUpdate(booking);
 
             BookingConfirmedPayload outboxPayload = BookingConfirmedPayload.builder()
                     .bookingId(booking.getId())
@@ -151,6 +157,7 @@ public class BookingServiceImpl implements BookingService {
             booking.setStatus(BookingStatus.CANCELLED);
             booking.setFailureReason(payload.getReason());
             bookingRepository.save(booking);
+            bookingRealtimePublisher.publishBookingUpdate(booking);
 
             BookingCancelledPayload outboxPayload = BookingCancelledPayload.builder()
                     .bookingId(payload.getBookingId())

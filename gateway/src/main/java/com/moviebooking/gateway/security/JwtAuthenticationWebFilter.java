@@ -34,13 +34,19 @@ public class JwtAuthenticationWebFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        String token = null;
         String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
 
-        if (!StringUtils.hasText(authHeader) || !authHeader.startsWith("Bearer ")) {
-            return chain.filter(exchange);
+        if (StringUtils.hasText(authHeader) && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7);
+        } else {
+            // Support query param ?token=... for EventSource SSE connections
+            token = exchange.getRequest().getQueryParams().getFirst("token");
         }
 
-        String token = authHeader.substring(7);
+        if (!StringUtils.hasText(token)) {
+            return chain.filter(exchange);
+        }
 
         try {
             SecretKey key = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
