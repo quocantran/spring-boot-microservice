@@ -20,6 +20,7 @@ public final class EventTypes {
 
         public static final String SEATS_RESERVED = "SEATS_RESERVED";
         public static final String SEAT_RESERVATION_FAILED = "SEAT_RESERVATION_FAILED";
+        public static final String SEATS_CONFIRMED = "SEATS_CONFIRMED";
         public static final String SEATS_COMPENSATED = "SEATS_COMPENSATED";
 
         public static final String PAYMENT_PROCESSED = "PAYMENT_PROCESSED";

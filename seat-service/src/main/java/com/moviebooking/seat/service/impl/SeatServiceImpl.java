@@ -1,5 +1,7 @@
 package com.moviebooking.seat.service.impl;
 
+import com.moviebooking.common.constants.RedisConstants;
+import com.moviebooking.common.constants.SeatConstants;
 import com.moviebooking.common.event.EventTypes.AggregateTypes;
 import com.moviebooking.common.event.EventTypes.Events;
 import com.moviebooking.common.event.EventPayloads.*;
@@ -9,6 +11,7 @@ import com.moviebooking.common.redis.RedisLockService;
 import com.moviebooking.common.redis.RedisLockService.LockResult;
 import com.moviebooking.seat.entity.SeatEntity;
 import com.moviebooking.seat.entity.SeatStatus;
+import com.moviebooking.seat.realtime.SeatRealtimePublisher;
 import com.moviebooking.seat.repository.SeatRepository;
 import com.moviebooking.seat.service.SeatService;
 import lombok.RequiredArgsConstructor;
@@ -34,9 +37,10 @@ public class SeatServiceImpl implements SeatService {
     private final OutboxService outboxService;
     private final RedisLockService redisLockService;
     private final TransactionTemplate transactionTemplate;
+    private final SeatRealtimePublisher seatRealtimePublisher;
 
-    private static final long REDIS_LOCK_TTL_MS = 5000;
-    private static final long SEAT_HOLD_MINUTES = 5;
+    private static final long REDIS_LOCK_TTL_MS = RedisConstants.DEFAULT_SEAT_LOCK_TTL_MS;
+    private static final long SEAT_HOLD_MINUTES = SeatConstants.SEAT_HOLD_MINUTES;
 
     @Override
     @Transactional(readOnly = true)
@@ -51,7 +55,7 @@ public class SeatServiceImpl implements SeatService {
         List<String> seatIds = payload.getSeatIds();
 
         List<String> lockKeys = seatIds.stream()
-                .map(seatId -> "lock:seat:" + showtimeId + ":" + seatId)
+                .map(seatId -> RedisConstants.LOCK_SEAT_PREFIX + showtimeId + ":" + seatId)
                 .collect(Collectors.toList());
 
         LockResult lockResult = redisLockService.acquireMultipleLocks(lockKeys, REDIS_LOCK_TTL_MS);
@@ -112,6 +116,9 @@ public class SeatServiceImpl implements SeatService {
     @Override
     @Transactional
     public void confirmSeats(String bookingId) {
+        // Query seats BEFORE confirming to capture showtimeId and seatNumbers
+        List<SeatEntity> seatsToConfirm = seatRepository.findByBookingId(bookingId);
+
         int affected = seatRepository.confirmHeldSeats(
                 bookingId, Instant.now(), SeatStatus.HELD, SeatStatus.BOOKED
         );
@@ -121,9 +128,21 @@ public class SeatServiceImpl implements SeatService {
             outboxService.createEvent(OutboxEventData.builder()
                     .aggregateType(AggregateTypes.SEAT)
                     .aggregateId(bookingId)
-                    .eventType(Events.SEATS_RESERVED)
+                    .eventType(Events.SEATS_CONFIRMED)
                     .payload(Map.of("bookingId", bookingId, "confirmed", true))
                     .build());
+
+            // Publish real-time update via Redis Pub/Sub
+            if (!seatsToConfirm.isEmpty()) {
+                String showtimeId = seatsToConfirm.get(0).getShowtimeId();
+                List<String> seatIds = seatsToConfirm.stream()
+                        .map(SeatEntity::getId)
+                        .collect(Collectors.toList());
+                List<String> seatNumbers = seatsToConfirm.stream()
+                        .map(SeatEntity::getSeatNumber)
+                        .collect(Collectors.toList());
+                seatRealtimePublisher.publishSeatsBooked(showtimeId, seatIds, seatNumbers);
+            }
         }
     }
 
@@ -151,8 +170,8 @@ public class SeatServiceImpl implements SeatService {
     @Override
     @Transactional
     public List<SeatEntity> generateSeatsForShowtime(String showtimeId, Integer rows, Integer cols) {
-        int r = (rows != null && rows > 0) ? rows : 5;
-        int c = (cols != null && cols > 0) ? cols : 8;
+        int r = (rows != null && rows > 0) ? rows : SeatConstants.DEFAULT_ROWS;
+        int c = (cols != null && cols > 0) ? cols : SeatConstants.DEFAULT_COLS;
 
         String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
         List<SeatEntity> seats = new ArrayList<>();
@@ -162,7 +181,7 @@ public class SeatServiceImpl implements SeatService {
             for (int col = 1; col <= c; col++) {
                 String seatNum = rowLabel + col;
                 SeatEntity seat = SeatEntity.builder()
-                        .id("seat-" + showtimeId + "-" + seatNum)
+                        .id(SeatConstants.SEAT_ID_PREFIX + showtimeId + "-" + seatNum)
                         .showtimeId(showtimeId)
                         .seatNumber(seatNum)
                         .seatRow(rowLabel)

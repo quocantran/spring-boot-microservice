@@ -2,6 +2,7 @@ package com.moviebooking.booking.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moviebooking.booking.service.BookingService;
+import com.moviebooking.common.constants.KafkaConstants;
 import com.moviebooking.common.event.EventTypes.Events;
 import com.moviebooking.common.event.EventTypes.Topics;
 import com.moviebooking.common.event.EventPayloads.*;
@@ -35,11 +36,11 @@ public class BookingKafkaConsumer {
             Events.SEATS_COMPENSATED
     );
 
-    @KafkaListener(topics = {Topics.SEAT_EVENTS, Topics.PAYMENT_EVENTS}, groupId = "booking-service-group")
+    @KafkaListener(topics = {Topics.SEAT_EVENTS, Topics.PAYMENT_EVENTS}, groupId = KafkaConstants.GROUP_BOOKING_SERVICE)
     public void handleEvents(ConsumerRecord<String, String> record) {
         try {
-            String headerEventType = extractHeader(record, "eventType");
-            String headerEventId = extractHeader(record, "id");
+            String headerEventType = extractHeader(record, KafkaConstants.HEADER_EVENT_TYPE);
+            String headerEventId = extractHeader(record, KafkaConstants.HEADER_EVENT_ID);
 
             String rawValue = record.value();
             if (rawValue == null || rawValue.isEmpty()) {
@@ -48,8 +49,8 @@ public class BookingKafkaConsumer {
 
             Map<String, Object> mapValue = objectMapper.readValue(rawValue, Map.class);
 
-            String eventType = headerEventType != null ? headerEventType : (String) mapValue.get("eventType");
-            String eventId = headerEventId != null ? headerEventId : (String) mapValue.get("id");
+            String eventType = headerEventType != null ? headerEventType : (String) mapValue.get(KafkaConstants.HEADER_EVENT_TYPE);
+            String eventId = headerEventId != null ? headerEventId : (String) mapValue.get(KafkaConstants.HEADER_EVENT_ID);
 
             if (eventType == null || eventId == null) {
                 log.warn("Missing eventType or eventId in record: {}", record);

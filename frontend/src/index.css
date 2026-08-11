@@ -1344,3 +1344,189 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ============================================
+   Real-time Seat Updates — SSE Badge & Conflict Alert
+   ============================================ */
+
+/* SSE Live Badge */
+.sse-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.sse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: sse-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sse-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+}
+
+/* Seat booked animation */
+.seat-booked {
+  transition: background 0.4s ease, transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* ─── Conflict Alert Overlay ─────────────────── */
+.seat-conflict-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: conflict-overlay-in 0.3s ease;
+}
+
+@keyframes conflict-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.seat-conflict-alert {
+  position: relative;
+  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 20px;
+  padding: 36px 32px 28px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow:
+    0 0 0 1px rgba(239, 68, 68, 0.1),
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    0 0 80px rgba(239, 68, 68, 0.08);
+  animation: conflict-alert-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  overflow: hidden;
+}
+
+@keyframes conflict-alert-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.seat-conflict-icon {
+  margin-bottom: 16px;
+  animation: conflict-icon-shake 0.5s ease 0.3s;
+}
+
+@keyframes conflict-icon-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-4px) rotate(-2deg); }
+  30% { transform: translateX(4px) rotate(2deg); }
+  45% { transform: translateX(-3px) rotate(-1deg); }
+  60% { transform: translateX(3px) rotate(1deg); }
+  75% { transform: translateX(-1px); }
+}
+
+.seat-conflict-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ef4444;
+  margin-bottom: 12px;
+  letter-spacing: -0.01em;
+}
+
+.seat-conflict-message {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.6;
+  margin-bottom: 6px;
+}
+
+.seat-conflict-message strong {
+  color: #fbbf24;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.seat-conflict-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.seat-conflict-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 32px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.seat-conflict-dismiss:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+}
+
+.seat-conflict-dismiss:active {
+  transform: translateY(0);
+}
+
+/* Auto-dismiss progress bar */
+.seat-conflict-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #ef4444, #f59e0b);
+  border-radius: 0 0 20px 20px;
+  animation: conflict-progress 6s linear forwards;
+}
+
+@keyframes conflict-progress {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+  .seat-conflict-alert {
+    padding: 28px 20px 24px;
+    border-radius: 16px;
+    margin: 0 12px;
+  }
+
+  .seat-conflict-title {
+    font-size: 1.05rem;
+  }
+
+  .seat-conflict-message {
+    font-size: 0.85rem;
+  }
+}

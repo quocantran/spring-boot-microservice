@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch, getToken } from '../utils/api'
 import { formatVND, formatTimeShort } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
+import { SSE_EVENTS, SSE_ENDPOINTS } from '../constants/sse'
 
 export default function BookingPage({ movieId, initialMovie = null, onBack, addToast, onBookingCreated }) {
   const [movie, setMovie] = useState(initialMovie)
@@ -13,6 +14,10 @@ export default function BookingPage({ movieId, initialMovie = null, onBack, addT
   const [seatsLoading, setSeatsLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [sseConnected, setSseConnected] = useState(false)
+  const [conflictAlert, setConflictAlert] = useState(null)
+  const eventSourceRef = useRef(null)
+  const conflictTimeoutRef = useRef(null)
   const navigate = useNavigate()
 
   const isAdmin = (() => {
@@ -51,6 +56,102 @@ export default function BookingPage({ movieId, initialMovie = null, onBack, addT
       .then(({ data }) => setSeats(data || []))
       .finally(() => setSeatsLoading(false))
   }, [selectedShowtime?.id])
+
+  // ─── SSE: Real-time seat updates ───────────────────────────────────
+  useEffect(() => {
+    if (!selectedShowtime?.id) return
+
+    // Close previous SSE connection
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
+      setSseConnected(false)
+    }
+
+    const es = new EventSource(`/api${SSE_ENDPOINTS.SEAT_STREAM}?showtimeId=${selectedShowtime.id}`)
+    eventSourceRef.current = es
+
+    es.addEventListener(SSE_EVENTS.CONNECTED, () => {
+      setSseConnected(true)
+    })
+
+    es.addEventListener(SSE_EVENTS.SEAT_UPDATE, (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.status === 'BOOKED' && data.seatIds) {
+          const bookedSeatIds = new Set(data.seatIds)
+          const bookedSeatNumbers = data.seatNumbers || []
+
+          // Update seats state: mark booked seats
+          setSeats(prev => prev.map(seat =>
+            bookedSeatIds.has(seat.id)
+              ? { ...seat, status: 'BOOKED' }
+              : seat
+          ))
+
+          // Check if any of the user's selected seats were just booked by someone else
+          setSelectedSeats(prev => {
+            const conflicted = prev.filter(id => bookedSeatIds.has(id))
+            if (conflicted.length > 0) {
+              // Find seat numbers for the conflicted seats
+              const conflictedNumbers = bookedSeatNumbers.length > 0
+                ? bookedSeatNumbers.filter((_, i) => bookedSeatIds.has(data.seatIds[i]) && conflicted.includes(data.seatIds[i]))
+                : conflicted.map(id => {
+                    const s = document.querySelector(`[data-seat-id="${id}"]`)
+                    return s ? s.textContent : id.split('-').pop()
+                  })
+
+              // Show conflict notification
+              showConflictAlert(conflictedNumbers.length > 0 ? conflictedNumbers : conflicted.map(id => id.split('-').pop()))
+
+              // Remove conflicted seats from selection
+              return prev.filter(id => !bookedSeatIds.has(id))
+            }
+            return prev
+          })
+        }
+      } catch (err) {
+        console.error('Failed to parse SSE event:', err)
+      }
+    })
+
+    es.onerror = () => {
+      setSseConnected(false)
+      // EventSource will auto-reconnect
+    }
+
+    return () => {
+      es.close()
+      eventSourceRef.current = null
+      setSseConnected(false)
+    }
+  }, [selectedShowtime?.id])
+
+  // Cleanup conflict timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (conflictTimeoutRef.current) clearTimeout(conflictTimeoutRef.current)
+    }
+  }, [])
+
+  const showConflictAlert = useCallback((seatNumbers) => {
+    if (conflictTimeoutRef.current) clearTimeout(conflictTimeoutRef.current)
+
+    setConflictAlert({
+      seats: seatNumbers,
+      timestamp: Date.now(),
+    })
+
+    // Auto-dismiss after 6 seconds
+    conflictTimeoutRef.current = setTimeout(() => {
+      setConflictAlert(null)
+    }, 6000)
+  }, [])
+
+  const dismissConflictAlert = useCallback(() => {
+    if (conflictTimeoutRef.current) clearTimeout(conflictTimeoutRef.current)
+    setConflictAlert(null)
+  }, [])
 
   const toggleSeat = (seatId, seatStatus) => {
     if (seatStatus !== 'AVAILABLE') return
@@ -140,6 +241,32 @@ export default function BookingPage({ movieId, initialMovie = null, onBack, addT
         </div>
       </div>
 
+      {/* Conflict Alert — premium notification */}
+      {conflictAlert && (
+        <div className="seat-conflict-overlay" onClick={dismissConflictAlert}>
+          <div className="seat-conflict-alert" onClick={e => e.stopPropagation()}>
+            <div className="seat-conflict-icon">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <circle cx="24" cy="24" r="24" fill="rgba(239,68,68,0.15)"/>
+                <circle cx="24" cy="24" r="18" fill="rgba(239,68,68,0.25)"/>
+                <path d="M24 14L34 32H14L24 14Z" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinejoin="round"/>
+                <line x1="24" y1="21" x2="24" y2="26" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round"/>
+                <circle cx="24" cy="29" r="1.2" fill="#ef4444"/>
+              </svg>
+            </div>
+            <h3 className="seat-conflict-title">Ghế đã được đặt</h3>
+            <p className="seat-conflict-message">
+              Ghế <strong>{conflictAlert.seats.join(', ')}</strong> vừa được người khác thanh toán thành công và đã bị xóa khỏi danh sách chọn của bạn.
+            </p>
+            <p className="seat-conflict-hint">Vui lòng chọn ghế khác để tiếp tục đặt vé.</p>
+            <button className="seat-conflict-dismiss" onClick={dismissConflictAlert}>
+              Đã hiểu
+            </button>
+            <div className="seat-conflict-progress" key={conflictAlert.timestamp} />
+          </div>
+        </div>
+      )}
+
       <div className="booking-layout">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
@@ -173,7 +300,15 @@ export default function BookingPage({ movieId, initialMovie = null, onBack, addT
 
           {selectedShowtime && (
             <>
-              <h3 style={{ marginTop: 32, marginBottom: 12 }}>🪑 Chọn ghế ngồi</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 32, marginBottom: 12 }}>
+                <h3 style={{ margin: 0 }}>🪑 Chọn ghế ngồi</h3>
+                {sseConnected && (
+                  <span className="sse-badge">
+                    <span className="sse-dot" />
+                    Live
+                  </span>
+                )}
+              </div>
               {seatsLoading ? (
                 <div className="loading"><div className="spinner" />Đang tải sơ đồ ghế...</div>
               ) : (
@@ -187,6 +322,7 @@ export default function BookingPage({ movieId, initialMovie = null, onBack, addT
                         const isBooked = seat.status === 'BOOKED' || seat.status === 'HELD'
                         return (
                           <div key={seat.id}
+                            data-seat-id={seat.id}
                             className={`seat ${isSelected ? 'seat-selected' : ''} ${isBooked ? 'seat-booked' : ''}`}
                             onClick={() => toggleSeat(seat.id, seat.status)}
                             title={isBooked ? `Ghế ${seat.seatNumber} — Đã đặt` : `Ghế ${seat.seatNumber}`}>

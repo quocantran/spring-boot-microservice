@@ -16,6 +16,8 @@ public interface SeatRepository extends JpaRepository<SeatEntity, String> {
 
     List<SeatEntity> findByShowtimeIdOrderBySeatRowAscSeatNumberAsc(String showtimeId);
 
+    List<SeatEntity> findByBookingId(String bookingId);
+
     @Modifying
     @Query("UPDATE SeatEntity s SET s.status = :status, s.bookingId = :bookingId, s.expireAt = :expireAt " +
             "WHERE s.id IN :seatIds AND s.showtimeId = :showtimeId AND s.status = :availableStatus")

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.moviebooking.common.constants.CacheConstants;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,15 +43,15 @@ public class RedisCacheConfig {
     // CacheManager dùng cho các annotation @CacheEvict
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory redisConnectionFactory,
-                                          GenericJackson2JsonRedisSerializer cacheRedisSerializer) {
+                                           GenericJackson2JsonRedisSerializer cacheRedisSerializer) {
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(10))
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(cacheRedisSerializer));
 
         Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
-        cacheConfigurations.put("movies", defaultConfig.entryTtl(Duration.ofMinutes(10)));
-        cacheConfigurations.put("showtimes", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+        cacheConfigurations.put(CacheConstants.CACHE_NAME_MOVIES, defaultConfig.entryTtl(Duration.ofMinutes(10)));
+        cacheConfigurations.put(CacheConstants.CACHE_NAME_SHOWTIMES, defaultConfig.entryTtl(Duration.ofMinutes(5)));
 
         return RedisCacheManager.builder(redisConnectionFactory)
                 .cacheDefaults(defaultConfig)

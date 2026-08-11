@@ -64,6 +64,17 @@ spring:
                 redis-rate-limiter.burstCapacity: 40
                 redis-rate-limiter.requestedTokens: 1
 
+        # SSE streaming endpoint — longer timeout, no rate limiting
+        - id: seat-service-stream
+          uri: ${SEAT_SERVICE_URL:http://localhost:5002}
+          predicates:
+            - Path=/seats/stream
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: seatServiceStream
+                fallbackUri: forward:/fallback/service-unavailable
+
         - id: seat-service
           uri: ${SEAT_SERVICE_URL:http://localhost:5002}
           predicates:
@@ -161,6 +172,8 @@ resilience4j:
         baseConfig: default
       seatService:
         baseConfig: default
+      seatServiceStream:
+        baseConfig: default
       movieService:
         baseConfig: default
       paymentService:
@@ -180,6 +193,8 @@ resilience4j:
         timeoutDuration: 10s
       aiRecommenderService:
         timeoutDuration: 15s
+      seatServiceStream:
+        timeoutDuration: 360s
 
 management:
   endpoints:

@@ -1,5 +1,8 @@
 package com.moviebooking.movie.service.impl;
 
+import com.moviebooking.common.constants.CacheConstants;
+import com.moviebooking.common.constants.MovieConstants;
+import com.moviebooking.common.constants.SeatConstants;
 import com.moviebooking.common.event.EventTypes.AggregateTypes;
 import com.moviebooking.common.event.EventTypes.Events;
 import com.moviebooking.common.event.EventPayloads.MovieCreatedPayload;
@@ -59,7 +62,7 @@ public class MovieServiceImpl implements MovieService {
     private String seatServiceUrl;
 
     // Chống Cache Penetration bằng marker null
-    private static final String CACHE_NULL_SENTINEL = "__CACHE_NULL__";
+    private static final String CACHE_NULL_SENTINEL = CacheConstants.CACHE_NULL_SENTINEL;
 
     // TTL cơ bản cho cache phim (10 phút)
     private static final Duration MOVIES_BASE_TTL = Duration.ofMinutes(10);
@@ -71,20 +74,20 @@ public class MovieServiceImpl implements MovieService {
     private static final Duration NULL_VALUE_TTL = Duration.ofMinutes(2);
 
     // Chống Cache Avalanche bằng random TTL jitter tối đa 120s
-    private static final long TTL_JITTER_MAX_SECONDS = 120;
+    private static final long TTL_JITTER_MAX_SECONDS = CacheConstants.TTL_JITTER_MAX_SECONDS;
 
     // Chống Cache Breakdown bằng Distributed Lock 3s
-    private static final long CACHE_LOCK_TTL_MS = 3000;
+    private static final long CACHE_LOCK_TTL_MS = CacheConstants.DEFAULT_CACHE_LOCK_TTL_MS;
 
     // Thời gian chờ retry khi thua lock (100ms)
-    private static final long CACHE_LOCK_RETRY_DELAY_MS = 100;
+    private static final long CACHE_LOCK_RETRY_DELAY_MS = CacheConstants.DEFAULT_CACHE_LOCK_RETRY_DELAY_MS;
 
     @Override
     @Transactional(readOnly = true)
     public List<MovieEntity> findAllMovies() {
         return loadThroughCache(
-                "movies::all",
-                "lock:cache:movies:all",
+                CacheConstants.KEY_MOVIES_ALL,
+                CacheConstants.LOCK_CACHE_MOVIES_ALL,
                 MOVIES_BASE_TTL,
                 () -> movieRepository.findAllByOrderByCreatedAtDesc()
         );
@@ -94,8 +97,8 @@ public class MovieServiceImpl implements MovieService {
     @Transactional(readOnly = true)
     public MovieEntity findMovieById(String id) {
         MovieEntity movie = loadThroughCache(
-                "movies::" + id,
-                "lock:cache:movies:" + id,
+                CacheConstants.PREFIX_MOVIES_CACHE + id,
+                CacheConstants.LOCK_CACHE_MOVIES_PREFIX + id,
                 MOVIES_BASE_TTL,
                 () -> movieRepository.findById(id).orElse(null)
         );
@@ -110,8 +113,8 @@ public class MovieServiceImpl implements MovieService {
     public List<ShowtimeEntity> findShowtimesByMovieId(String movieId) {
         findMovieById(movieId);
         return loadThroughCache(
-                "showtimes::" + movieId,
-                "lock:cache:showtimes:" + movieId,
+                CacheConstants.PREFIX_SHOWTIMES_CACHE + movieId,
+                CacheConstants.LOCK_CACHE_SHOWTIMES_PREFIX + movieId,
                 SHOWTIMES_BASE_TTL,
                 () -> showtimeRepository.findByMovieIdOrderByStartTimeAsc(movieId)
         );
@@ -213,13 +216,17 @@ public class MovieServiceImpl implements MovieService {
     public int generateSeatsForShowtime(String showtimeId) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        Map<String, Object> body = Map.of("showtimeId", showtimeId, "rows", 5, "cols", 8);
+        Map<String, Object> body = Map.of(
+                MovieConstants.FIELD_SHOWTIME_ID, showtimeId,
+                MovieConstants.FIELD_ROWS, SeatConstants.DEFAULT_ROWS,
+                MovieConstants.FIELD_COLS, SeatConstants.DEFAULT_COLS
+        );
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
 
-        Map response = restTemplate.postForObject(seatServiceUrl + "/seats/generate", entity, Map.class);
+        Map response = restTemplate.postForObject(seatServiceUrl + MovieConstants.ENDPOINT_SEATS_GENERATE, entity, Map.class);
         int seatsGenerated = 0;
-        if (response != null && response.containsKey("generated")) {
-            seatsGenerated = ((Number) response.get("generated")).intValue();
+        if (response != null && response.containsKey(MovieConstants.FIELD_GENERATED)) {
+            seatsGenerated = ((Number) response.get(MovieConstants.FIELD_GENERATED)).intValue();
         }
         log.info("Generated {} seats for showtimeId: {}", seatsGenerated, showtimeId);
         return seatsGenerated;

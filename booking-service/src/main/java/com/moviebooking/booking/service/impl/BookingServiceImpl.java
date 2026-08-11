@@ -5,6 +5,7 @@ import com.moviebooking.booking.entity.BookingEntity;
 import com.moviebooking.booking.entity.BookingStatus;
 import com.moviebooking.booking.repository.BookingRepository;
 import com.moviebooking.booking.service.BookingService;
+import com.moviebooking.common.constants.BookingConstants;
 import com.moviebooking.common.event.EventTypes.AggregateTypes;
 import com.moviebooking.common.event.EventTypes.Events;
 import com.moviebooking.common.event.EventPayloads.*;
@@ -104,7 +105,7 @@ public class BookingServiceImpl implements BookingService {
             BookingCancelledPayload outboxPayload = BookingCancelledPayload.builder()
                     .bookingId(payload.getBookingId())
                     .reason(payload.getReason())
-                    .status("CANCELLED")
+                    .status(BookingConstants.STATUS_CANCELLED)
                     .build();
 
             outboxService.createEvent(OutboxEventData.builder()
@@ -130,7 +131,7 @@ public class BookingServiceImpl implements BookingService {
                     .movieId(booking.getMovieId())
                     .showtimeId(booking.getShowtimeId())
                     .seatIds(booking.getSeatIds())
-                    .status("CONFIRMED")
+                    .status(BookingConstants.STATUS_CONFIRMED)
                     .build();
 
             outboxService.createEvent(OutboxEventData.builder()
@@ -154,7 +155,7 @@ public class BookingServiceImpl implements BookingService {
             BookingCancelledPayload outboxPayload = BookingCancelledPayload.builder()
                     .bookingId(payload.getBookingId())
                     .reason(payload.getReason())
-                    .status("CANCELLED")
+                    .status(BookingConstants.STATUS_CANCELLED)
                     .build();
 
             outboxService.createEvent(OutboxEventData.builder()
