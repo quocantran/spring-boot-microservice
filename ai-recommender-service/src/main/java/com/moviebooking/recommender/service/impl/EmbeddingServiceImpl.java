@@ -99,7 +99,7 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 }
             }
 
-            // L2 normalize (same as NestJS normalize: true)
+            // L2 normalize embedding vector
             float norm = 0;
             for (float v : embedding) norm += v * v;
             norm = (float) Math.sqrt(norm);
@@ -127,10 +127,10 @@ public class EmbeddingServiceImpl implements EmbeddingService {
             parts.add(title);
         }
         if (genre != null && !genre.isEmpty()) {
-            parts.add("Thể loại: " + genre);
+            parts.add("Genre: " + genre);
         }
         if (description != null && !description.isEmpty()) {
-            // Triple-weight description for emphasis (matches NestJS behavior)
+            // Triple-weight description for emphasis
             parts.add(description);
             parts.add(description);
             parts.add(description);

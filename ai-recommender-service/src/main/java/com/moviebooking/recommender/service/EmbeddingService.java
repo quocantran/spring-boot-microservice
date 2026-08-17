@@ -16,10 +16,7 @@ public interface EmbeddingService {
      */
     List<Float> generateEmbedding(String text);
 
-    /**
-     * Create descriptive text from movie metadata for embedding generation.
-     * Matches NestJS: title + "Thể loại: genre" + description×3
-     */
+    /** Create descriptive text from movie metadata for embedding generation. */
     String createMovieText(String title, String genre, String description);
 
     /**

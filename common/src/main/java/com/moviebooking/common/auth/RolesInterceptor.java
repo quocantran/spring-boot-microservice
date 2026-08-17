@@ -19,7 +19,7 @@ public class RolesInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        // Check @Authenticated annotation (equivalent to @UseGuards(JwtAuthGuard) in NestJS)
+        // Check @Authenticated annotation
         boolean requiresAuth = handlerMethod.hasMethodAnnotation(Authenticated.class)
                 || handlerMethod.getBeanType().isAnnotationPresent(Authenticated.class);
 

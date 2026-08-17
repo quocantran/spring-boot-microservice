@@ -61,25 +61,25 @@ public class MovieServiceImpl implements MovieService {
     @Value("${seat-service.url:http://localhost:5002}")
     private String seatServiceUrl;
 
-    // Chống Cache Penetration bằng marker null
+    // Cache Penetration prevention sentinel
     private static final String CACHE_NULL_SENTINEL = CacheConstants.CACHE_NULL_SENTINEL;
 
-    // TTL cơ bản cho cache phim (10 phút)
+    // Base TTL for movie cache (10 min)
     private static final Duration MOVIES_BASE_TTL = Duration.ofMinutes(10);
 
-    // TTL cơ bản cho cache lịch chiếu (5 phút)
+    // Base TTL for showtime cache (5 min)
     private static final Duration SHOWTIMES_BASE_TTL = Duration.ofMinutes(5);
 
-    // TTL ngắn cho giá trị null (2 phút)
+    // Short TTL for null sentinel (2 min)
     private static final Duration NULL_VALUE_TTL = Duration.ofMinutes(2);
 
-    // Chống Cache Avalanche bằng random TTL jitter tối đa 120s
+    // Cache Avalanche prevention: max TTL jitter in seconds
     private static final long TTL_JITTER_MAX_SECONDS = CacheConstants.TTL_JITTER_MAX_SECONDS;
 
-    // Chống Cache Breakdown bằng Distributed Lock 3s
+    // Cache Breakdown prevention: distributed lock TTL
     private static final long CACHE_LOCK_TTL_MS = CacheConstants.DEFAULT_CACHE_LOCK_TTL_MS;
 
-    // Thời gian chờ retry khi thua lock (100ms)
+    // Retry delay when lock acquisition fails
     private static final long CACHE_LOCK_RETRY_DELAY_MS = CacheConstants.DEFAULT_CACHE_LOCK_RETRY_DELAY_MS;
 
     @Override
@@ -210,7 +210,7 @@ public class MovieServiceImpl implements MovieService {
                 .build();
     }
 
-    // REST call sang seat-service bảo vệ bằng Circuit Breaker + Retry
+    // Inter-service REST call to seat-service protected by Circuit Breaker & Retry
     @CircuitBreaker(name = "seatService", fallbackMethod = "generateSeatsFallback")
     @Retry(name = "seatService")
     public int generateSeatsForShowtime(String showtimeId) {
@@ -232,14 +232,14 @@ public class MovieServiceImpl implements MovieService {
         return seatsGenerated;
     }
 
-    // Fallback khi circuit breaker mở hoặc retry thất bại
+    // Fallback when circuit breaker opens or retries fail
     public int generateSeatsFallback(String showtimeId, Exception ex) {
         log.warn("Seat generation failed for showtimeId: {}. Circuit Breaker fallback activated. Error: {}",
                 showtimeId, ex.getMessage());
         return 0;
     }
 
-    // Hàm nạp Cache-Aside tổng quát với Distributed Lock, TTL Jitter và Cache Null
+    // Generic Cache-Aside loader with Distributed Lock, TTL Jitter, and Null Sentinel
     @SuppressWarnings("unchecked")
     private <T> T loadThroughCache(String cacheKey, String lockKey, Duration baseTtl, Supplier<T> dbLoader) {
         if (cacheRedisTemplate == null) {
@@ -247,7 +247,7 @@ public class MovieServiceImpl implements MovieService {
         }
 
         try {
-            // Bước 1: Đọc từ Redis Cache
+            // Step 1: Read from Redis Cache
             Object cached = cacheRedisTemplate.opsForValue().get(cacheKey);
             if (cached != null) {
                 if (CACHE_NULL_SENTINEL.equals(cached)) {
@@ -258,7 +258,7 @@ public class MovieServiceImpl implements MovieService {
                 return (T) cached;
             }
 
-            // Bước 2: Cache Miss -> Xin Redis Distributed Lock (chống Cache Breakdown trên K8s)
+            // Step 2: Cache Miss -> Acquire Distributed Lock (prevents Cache Breakdown)
             String lockToken = redisLockService.acquireLock(lockKey, CACHE_LOCK_TTL_MS);
 
             if (lockToken == null) {
@@ -279,17 +279,17 @@ public class MovieServiceImpl implements MovieService {
             }
 
             try {
-                // Bước 3: Lock acquired -> Double check cache
+                // Step 3: Lock acquired -> Double check cache
                 cached = cacheRedisTemplate.opsForValue().get(cacheKey);
                 if (cached != null) {
                     if (CACHE_NULL_SENTINEL.equals(cached)) return null;
                     return (T) cached;
                 }
 
-                // Bước 4: Chỉ 1 Pod K8s duy nhất vào đây query DB
+                // Step 4: Single instance executes DB query
                 T result = dbLoader.get();
 
-                // Bước 5: Ghi kết quả vào Redis với TTL Jitter hoặc Marker Null
+                // Step 5: Save result to Redis with TTL Jitter or Null Sentinel
                 if (result == null) {
                     cacheRedisTemplate.opsForValue().set(cacheKey, CACHE_NULL_SENTINEL, NULL_VALUE_TTL);
                     log.debug("[Anti Penetration] Cached null sentinel -> key: {}", cacheKey);
@@ -302,7 +302,7 @@ public class MovieServiceImpl implements MovieService {
 
                 return result;
             } finally {
-                // Bước 6: Giải phóng Distributed Lock
+                // Step 6: Release Distributed Lock
                 redisLockService.releaseLock(lockKey, lockToken);
             }
 

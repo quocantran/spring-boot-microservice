@@ -28,31 +28,21 @@ public class OutboxService {
         private Object payload;
     }
 
-    /**
-     * Tạo outbox event trong transaction hiện tại.
-     * Tương đương NestJS: OutboxService.createEvent(eventData)
-     */
+    /** Create outbox event in the current transaction. */
     @Transactional
     public OutboxEntity createEvent(OutboxEventData eventData) {
         OutboxEntity outbox = buildOutboxEntity(eventData);
         return outboxRepository.save(outbox);
     }
 
-    /**
-     * Tạo outbox event sử dụng EntityManager cụ thể để tham gia transaction của caller.
-     * Tương đương NestJS: OutboxService.createEvent(eventData, entityManager)
-     * và OutboxService.createEventInTransaction(entityManager, eventData)
-     */
+    /** Create outbox event using specific EntityManager to participate in caller transaction. */
     public OutboxEntity createEvent(OutboxEventData eventData, EntityManager entityManager) {
         OutboxEntity outbox = buildOutboxEntity(eventData);
         entityManager.persist(outbox);
         return outbox;
     }
 
-    /**
-     * Alias cho createEvent(eventData, entityManager)
-     * Tương đương NestJS: OutboxService.createEventInTransaction(entityManager, eventData)
-     */
+    /** Alias for createEvent(eventData, entityManager). */
     public OutboxEntity createEventInTransaction(EntityManager entityManager, OutboxEventData eventData) {
         return createEvent(eventData, entityManager);
     }

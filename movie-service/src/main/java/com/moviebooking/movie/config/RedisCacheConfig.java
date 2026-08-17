@@ -21,12 +21,12 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
-// Cấu hình Redis Cache cho movie-service (Cho phép cache null value để chống Cache Penetration)
+// Redis Cache configuration for movie-service
 @Configuration
 @EnableCaching
 public class RedisCacheConfig {
 
-    // Serializer dùng chung cho CacheManager và RedisTemplate
+    // Shared JSON serializer for CacheManager and RedisTemplate
     @Bean
     public GenericJackson2JsonRedisSerializer cacheRedisSerializer(ObjectMapper objectMapper) {
         ObjectMapper cacheObjectMapper = objectMapper.copy();
@@ -40,7 +40,7 @@ public class RedisCacheConfig {
         return new GenericJackson2JsonRedisSerializer(cacheObjectMapper);
     }
 
-    // CacheManager dùng cho các annotation @CacheEvict
+    // CacheManager used for @CacheEvict annotations
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory redisConnectionFactory,
                                            GenericJackson2JsonRedisSerializer cacheRedisSerializer) {
@@ -59,7 +59,7 @@ public class RedisCacheConfig {
                 .build();
     }
 
-    // RedisTemplate cho thao tác Cache-Aside với TTL Jitter và Distributed Lock
+    // RedisTemplate for manual Cache-Aside operations
     @Bean("cacheRedisTemplate")
     public RedisTemplate<String, Object> cacheRedisTemplate(RedisConnectionFactory redisConnectionFactory,
                                                              GenericJackson2JsonRedisSerializer cacheRedisSerializer) {

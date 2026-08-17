@@ -6,10 +6,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
-/**
- * CORS config cho tất cả microservices.
- * Tương đương NestJS: app.enableCors({ origin: '*', credentials: true })
- */
+/** Global CORS configuration for microservices. */
 @Configuration
 public class CorsConfig {
 

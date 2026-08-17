@@ -16,7 +16,7 @@ public class JwtTokenProvider {
     @Value("${jwt.secret:movie-booking-jwt-secret-key-2026}")
     private String jwtSecret;
 
-    // Default expiration: 7 days (604,800,000 ms) matching standard NestJS JWT default
+    // Default token expiration: 7 days (604,800,000 ms)
     private final long jwtExpirationMs = 7 * 24 * 60 * 60 * 1000L;
 
     public String generateToken(String sub, String email, String name, String role) {
