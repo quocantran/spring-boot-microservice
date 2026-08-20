@@ -33,10 +33,10 @@ public class BookingKafkaConsumer {
             Events.SEAT_RESERVATION_FAILED,
             Events.PAYMENT_PROCESSED,
             Events.PAYMENT_FAILED,
-            Events.SEATS_COMPENSATED
-    );
+            Events.SEATS_COMPENSATED);
 
-    @KafkaListener(topics = {Topics.SEAT_EVENTS, Topics.PAYMENT_EVENTS}, groupId = KafkaConstants.GROUP_BOOKING_SERVICE)
+    @KafkaListener(topics = { Topics.SEAT_EVENTS,
+            Topics.PAYMENT_EVENTS }, groupId = KafkaConstants.GROUP_BOOKING_SERVICE)
     public void handleEvents(ConsumerRecord<String, String> record) {
         try {
             String headerEventType = extractHeader(record, KafkaConstants.HEADER_EVENT_TYPE);
@@ -49,8 +49,10 @@ public class BookingKafkaConsumer {
 
             Map<String, Object> mapValue = objectMapper.readValue(rawValue, Map.class);
 
-            String eventType = headerEventType != null ? headerEventType : (String) mapValue.get(KafkaConstants.HEADER_EVENT_TYPE);
-            String eventId = headerEventId != null ? headerEventId : (String) mapValue.get(KafkaConstants.HEADER_EVENT_ID);
+            String eventType = headerEventType != null ? headerEventType
+                    : (String) mapValue.get(KafkaConstants.HEADER_EVENT_TYPE);
+            String eventId = headerEventId != null ? headerEventId
+                    : (String) mapValue.get(KafkaConstants.HEADER_EVENT_ID);
 
             if (eventType == null || eventId == null) {
                 log.warn("Missing eventType or eventId in record: {}", record);
@@ -71,27 +73,32 @@ public class BookingKafkaConsumer {
                 try {
                     switch (targetEventType) {
                         case Events.SEATS_RESERVED:
-                            SeatsReservedPayload seatsReservedPayload = objectMapper.readValue(payloadJson, SeatsReservedPayload.class);
+                            SeatsReservedPayload seatsReservedPayload = objectMapper.readValue(payloadJson,
+                                    SeatsReservedPayload.class);
                             bookingService.handleSeatsReserved(seatsReservedPayload);
                             break;
 
                         case Events.SEAT_RESERVATION_FAILED:
-                            SeatReservationFailedPayload seatFailedPayload = objectMapper.readValue(payloadJson, SeatReservationFailedPayload.class);
+                            SeatReservationFailedPayload seatFailedPayload = objectMapper.readValue(payloadJson,
+                                    SeatReservationFailedPayload.class);
                             bookingService.handleSeatReservationFailed(seatFailedPayload);
                             break;
 
                         case Events.PAYMENT_PROCESSED:
-                            PaymentProcessedPayload paymentProcessedPayload = objectMapper.readValue(payloadJson, PaymentProcessedPayload.class);
+                            PaymentProcessedPayload paymentProcessedPayload = objectMapper.readValue(payloadJson,
+                                    PaymentProcessedPayload.class);
                             bookingService.handlePaymentProcessed(paymentProcessedPayload);
                             break;
 
                         case Events.PAYMENT_FAILED:
-                            PaymentFailedPayload paymentFailedPayload = objectMapper.readValue(payloadJson, PaymentFailedPayload.class);
+                            PaymentFailedPayload paymentFailedPayload = objectMapper.readValue(payloadJson,
+                                    PaymentFailedPayload.class);
                             bookingService.handlePaymentFailed(paymentFailedPayload);
                             break;
 
                         case Events.SEATS_COMPENSATED:
-                            SeatsCompensatedPayload seatsCompensatedPayload = objectMapper.readValue(payloadJson, SeatsCompensatedPayload.class);
+                            SeatsCompensatedPayload seatsCompensatedPayload = objectMapper.readValue(payloadJson,
+                                    SeatsCompensatedPayload.class);
                             bookingService.handleSeatsCompensated(seatsCompensatedPayload);
                             break;
                     }
