@@ -16,10 +16,14 @@ export async function apiFetch(path, options = {}) {
     ...options,
     headers: { ...authHeaders(), ...options.headers },
   })
-  const data = await res.json().catch(() => null)
+  const json = await res.json().catch(() => null)
   if (res.status === 401) {
     clearToken()
     window.location.reload()
   }
-  return { ok: res.ok, status: res.status, data }
+  const data = (json && typeof json === 'object' && 'success' in json && 'data' in json && json.data !== undefined)
+    ? json.data
+    : json
+  return { ok: res.ok, status: res.status, data, raw: json }
 }
+

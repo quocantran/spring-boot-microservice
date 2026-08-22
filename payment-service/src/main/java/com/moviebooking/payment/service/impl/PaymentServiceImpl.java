@@ -1,10 +1,8 @@
 package com.moviebooking.payment.service.impl;
 
 import com.moviebooking.common.event.EventPayloads.*;
-import com.moviebooking.common.event.EventTypes.AggregateTypes;
-import com.moviebooking.common.event.EventTypes.Events;
+import com.moviebooking.common.event.OutboxEventFactory;
 import com.moviebooking.common.outbox.OutboxService;
-import com.moviebooking.common.outbox.OutboxService.OutboxEventData;
 import com.moviebooking.payment.entity.PaymentEntity;
 import com.moviebooking.payment.entity.PaymentStatus;
 import com.moviebooking.payment.entity.WalletEntity;
@@ -18,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -58,17 +55,14 @@ public class PaymentServiceImpl implements PaymentService {
                     .build();
             paymentRepository.save(payment);
 
-            outboxService.createEvent(OutboxEventData.builder()
-                    .aggregateType(AggregateTypes.PAYMENT)
-                    .aggregateId(bookingId)
-                    .eventType(Events.PAYMENT_FAILED)
-                    .payload(PaymentFailedPayload.builder()
-                            .bookingId(bookingId)
-                            .showtimeId(showtimeId)
-                            .seatIds(seatIds)
-                            .reason(reason)
-                            .build())
-                    .build());
+            PaymentFailedPayload failedPayload = PaymentFailedPayload.builder()
+                    .bookingId(bookingId)
+                    .showtimeId(showtimeId)
+                    .seatIds(seatIds)
+                    .reason(reason)
+                    .build();
+
+            outboxService.createEvent(OutboxEventFactory.paymentFailed(bookingId, failedPayload));
             return;
         }
 
@@ -89,17 +83,14 @@ public class PaymentServiceImpl implements PaymentService {
                     .build();
             paymentRepository.save(payment);
 
-            outboxService.createEvent(OutboxEventData.builder()
-                    .aggregateType(AggregateTypes.PAYMENT)
-                    .aggregateId(bookingId)
-                    .eventType(Events.PAYMENT_FAILED)
-                    .payload(PaymentFailedPayload.builder()
-                            .bookingId(bookingId)
-                            .showtimeId(showtimeId)
-                            .seatIds(seatIds)
-                            .reason(reason)
-                            .build())
-                    .build());
+            PaymentFailedPayload failedPayload = PaymentFailedPayload.builder()
+                    .bookingId(bookingId)
+                    .showtimeId(showtimeId)
+                    .seatIds(seatIds)
+                    .reason(reason)
+                    .build();
+
+            outboxService.createEvent(OutboxEventFactory.paymentFailed(bookingId, failedPayload));
             return;
         }
 
@@ -119,17 +110,15 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
         paymentRepository.save(payment);
 
-        outboxService.createEvent(OutboxEventData.builder()
-                .aggregateType(AggregateTypes.PAYMENT)
-                .aggregateId(bookingId)
-                .eventType(Events.PAYMENT_PROCESSED)
-                .payload(PaymentProcessedPayload.builder()
-                        .bookingId(bookingId)
-                        .paymentId(paymentId)
-                        .amount(totalAmount)
-                        .build())
-                .build());
+        PaymentProcessedPayload processedPayload = PaymentProcessedPayload.builder()
+                .bookingId(bookingId)
+                .paymentId(paymentId)
+                .amount(totalAmount)
+                .build();
+
+        outboxService.createEvent(OutboxEventFactory.paymentProcessed(bookingId, processedPayload));
 
         log.info("Payment processed: bookingId={}, paymentId={}, amount={}", bookingId, paymentId, totalAmount);
     }
 }
+

@@ -7,13 +7,11 @@ import com.moviebooking.booking.realtime.BookingRealtimePublisher;
 import com.moviebooking.booking.repository.BookingRepository;
 import com.moviebooking.booking.service.BookingService;
 import com.moviebooking.common.constants.BookingConstants;
-import com.moviebooking.common.event.EventTypes.AggregateTypes;
-import com.moviebooking.common.event.EventTypes.Events;
 import com.moviebooking.common.event.EventPayloads.*;
+import com.moviebooking.common.event.OutboxEventFactory;
 import com.moviebooking.common.exception.CustomExceptions.BadRequestException;
 import com.moviebooking.common.exception.CustomExceptions.NotFoundException;
 import com.moviebooking.common.outbox.OutboxService;
-import com.moviebooking.common.outbox.OutboxService.OutboxEventData;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -62,12 +60,7 @@ public class BookingServiceImpl implements BookingService {
                 .totalAmount(request.getTotalAmount() != null ? request.getTotalAmount().doubleValue() : null)
                 .build();
 
-        outboxService.createEvent(OutboxEventData.builder()
-                .aggregateType(AggregateTypes.BOOKING)
-                .aggregateId(bookingId)
-                .eventType(Events.BOOKING_CREATED)
-                .payload(payload)
-                .build());
+        outboxService.createEvent(OutboxEventFactory.bookingCreated(bookingId, payload));
 
         log.info("Booking created: {}, userId: {}", bookingId, userId);
         return booking;
@@ -113,12 +106,7 @@ public class BookingServiceImpl implements BookingService {
                     .status(BookingConstants.STATUS_CANCELLED)
                     .build();
 
-            outboxService.createEvent(OutboxEventData.builder()
-                    .aggregateType(AggregateTypes.BOOKING)
-                    .aggregateId(payload.getBookingId())
-                    .eventType(Events.BOOKING_CANCELLED)
-                    .payload(outboxPayload)
-                    .build());
+            outboxService.createEvent(OutboxEventFactory.bookingCancelled(payload.getBookingId(), outboxPayload));
         });
     }
 
@@ -140,12 +128,7 @@ public class BookingServiceImpl implements BookingService {
                     .status(BookingConstants.STATUS_CONFIRMED)
                     .build();
 
-            outboxService.createEvent(OutboxEventData.builder()
-                    .aggregateType(AggregateTypes.BOOKING)
-                    .aggregateId(booking.getId())
-                    .eventType(Events.BOOKING_CONFIRMED)
-                    .payload(outboxPayload)
-                    .build());
+            outboxService.createEvent(OutboxEventFactory.bookingConfirmed(booking.getId(), outboxPayload));
         });
     }
 
@@ -165,12 +148,7 @@ public class BookingServiceImpl implements BookingService {
                     .status(BookingConstants.STATUS_CANCELLED)
                     .build();
 
-            outboxService.createEvent(OutboxEventData.builder()
-                    .aggregateType(AggregateTypes.BOOKING)
-                    .aggregateId(payload.getBookingId())
-                    .eventType(Events.BOOKING_CANCELLED)
-                    .payload(outboxPayload)
-                    .build());
+            outboxService.createEvent(OutboxEventFactory.bookingCancelled(payload.getBookingId(), outboxPayload));
         });
     }
 

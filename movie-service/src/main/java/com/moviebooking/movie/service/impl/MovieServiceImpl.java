@@ -3,13 +3,11 @@ package com.moviebooking.movie.service.impl;
 import com.moviebooking.common.constants.CacheConstants;
 import com.moviebooking.common.constants.MovieConstants;
 import com.moviebooking.common.constants.SeatConstants;
-import com.moviebooking.common.event.EventTypes.AggregateTypes;
-import com.moviebooking.common.event.EventTypes.Events;
+import com.moviebooking.common.event.OutboxEventFactory;
 import com.moviebooking.common.event.EventPayloads.MovieCreatedPayload;
 import com.moviebooking.common.exception.CustomExceptions.BadRequestException;
 import com.moviebooking.common.exception.CustomExceptions.NotFoundException;
 import com.moviebooking.common.outbox.OutboxService;
-import com.moviebooking.common.outbox.OutboxService.OutboxEventData;
 import com.moviebooking.common.redis.RedisLockService;
 import com.moviebooking.movie.dto.CreateMovieRequest;
 import com.moviebooking.movie.dto.CreateShowtimeRequest;
@@ -150,12 +148,7 @@ public class MovieServiceImpl implements MovieService {
                 .posterUrl(movie.getPosterUrl())
                 .build();
 
-        outboxService.createEvent(OutboxEventData.builder()
-                .aggregateType(AggregateTypes.MOVIE)
-                .aggregateId(movie.getId())
-                .eventType(Events.MOVIE_CREATED)
-                .payload(payload)
-                .build());
+        outboxService.createEvent(OutboxEventFactory.movieCreated(movie.getId(), payload));
 
         log.info("Created movie with ID: {}", movie.getId());
         return movie;

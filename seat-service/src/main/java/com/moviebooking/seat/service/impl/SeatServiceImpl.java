@@ -2,11 +2,9 @@ package com.moviebooking.seat.service.impl;
 
 import com.moviebooking.common.constants.RedisConstants;
 import com.moviebooking.common.constants.SeatConstants;
-import com.moviebooking.common.event.EventTypes.AggregateTypes;
-import com.moviebooking.common.event.EventTypes.Events;
 import com.moviebooking.common.event.EventPayloads.*;
+import com.moviebooking.common.event.OutboxEventFactory;
 import com.moviebooking.common.outbox.OutboxService;
-import com.moviebooking.common.outbox.OutboxService.OutboxEventData;
 import com.moviebooking.common.redis.RedisLockService;
 import com.moviebooking.common.redis.RedisLockService.LockResult;
 import com.moviebooking.seat.entity.SeatEntity;
@@ -103,12 +101,7 @@ public class SeatServiceImpl implements SeatService {
                 .totalAmount(payload.getTotalAmount())
                 .build();
 
-        outboxService.createEvent(OutboxEventData.builder()
-                .aggregateType(AggregateTypes.SEAT)
-                .aggregateId(bookingId)
-                .eventType(Events.SEATS_RESERVED)
-                .payload(outboxPayload)
-                .build());
+        outboxService.createEvent(OutboxEventFactory.seatsReserved(bookingId, outboxPayload));
 
         log.info("Successfully reserved {} seats for bookingId: {}", affected, bookingId);
     }
@@ -125,12 +118,7 @@ public class SeatServiceImpl implements SeatService {
         log.info("Confirmed {} seats for bookingId: {}", affected, bookingId);
 
         if (affected > 0) {
-            outboxService.createEvent(OutboxEventData.builder()
-                    .aggregateType(AggregateTypes.SEAT)
-                    .aggregateId(bookingId)
-                    .eventType(Events.SEATS_CONFIRMED)
-                    .payload(Map.of("bookingId", bookingId, "confirmed", true))
-                    .build());
+            outboxService.createEvent(OutboxEventFactory.seatsConfirmed(bookingId, Map.of("bookingId", bookingId, "confirmed", true)));
 
             // Publish real-time update via Redis Pub/Sub
             if (!seatsToConfirm.isEmpty()) {
@@ -159,12 +147,7 @@ public class SeatServiceImpl implements SeatService {
                 .reason(reason)
                 .build();
 
-        outboxService.createEvent(OutboxEventData.builder()
-                .aggregateType(AggregateTypes.SEAT)
-                .aggregateId(bookingId)
-                .eventType(Events.SEATS_COMPENSATED)
-                .payload(outboxPayload)
-                .build());
+        outboxService.createEvent(OutboxEventFactory.seatsCompensated(bookingId, outboxPayload));
     }
 
     @Override
@@ -218,11 +201,6 @@ public class SeatServiceImpl implements SeatService {
                 .reason(reason)
                 .build();
 
-        outboxService.createEvent(OutboxEventData.builder()
-                .aggregateType(AggregateTypes.SEAT)
-                .aggregateId(bookingId)
-                .eventType(Events.SEAT_RESERVATION_FAILED)
-                .payload(payload)
-                .build());
+        outboxService.createEvent(OutboxEventFactory.seatReservationFailed(bookingId, payload));
     }
 }

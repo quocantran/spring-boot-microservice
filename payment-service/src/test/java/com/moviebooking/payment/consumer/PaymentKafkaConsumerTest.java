@@ -2,9 +2,11 @@ package com.moviebooking.payment.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moviebooking.common.constants.KafkaConstants;
+import com.moviebooking.common.event.EventHandlerRegistry;
 import com.moviebooking.common.event.EventPayloads.SeatsReservedPayload;
 import com.moviebooking.common.event.EventTypes.Events;
 import com.moviebooking.common.idempotency.IdempotencyService;
+import com.moviebooking.payment.consumer.handler.SeatsReservedHandler;
 import com.moviebooking.payment.service.PaymentService;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
@@ -39,7 +41,8 @@ class PaymentKafkaConsumerTest {
 
     @BeforeEach
     void setUp() {
-        paymentKafkaConsumer = new PaymentKafkaConsumer(paymentService, idempotencyService, objectMapper);
+        EventHandlerRegistry registry = EventHandlerRegistry.of(List.of(new SeatsReservedHandler(paymentService)));
+        paymentKafkaConsumer = new PaymentKafkaConsumer(registry, idempotencyService, objectMapper);
     }
 
     private ConsumerRecord<String, String> createRecord(String eventType, String eventId, String value, boolean useHeaders) {

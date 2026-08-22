@@ -2,11 +2,10 @@ package com.moviebooking.payment.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moviebooking.common.constants.KafkaConstants;
-import com.moviebooking.common.event.EventPayloads.SeatsReservedPayload;
-import com.moviebooking.common.event.EventTypes.Events;
+import com.moviebooking.common.event.EventHandler;
+import com.moviebooking.common.event.EventHandlerRegistry;
 import com.moviebooking.common.event.EventTypes.Topics;
 import com.moviebooking.common.idempotency.IdempotencyService;
-import com.moviebooking.payment.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -16,13 +15,18 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Optional;
 
+/**
+ * Kafka consumer for payment-service using Strategy Pattern (EventHandlerRegistry)
+ * for event routing, adhering to Open/Closed Principle.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class PaymentKafkaConsumer {
 
-    private final PaymentService paymentService;
+    private final EventHandlerRegistry eventHandlerRegistry;
     private final IdempotencyService idempotencyService;
     private final ObjectMapper objectMapper;
 
@@ -42,16 +46,19 @@ public class PaymentKafkaConsumer {
 
             if (eventType == null || eventId == null) return;
 
-            // Only process SEATS_RESERVED events
-            if (!Events.SEATS_RESERVED.equals(eventType)) return;
+            Optional<EventHandler<Object>> handlerOpt = eventHandlerRegistry.getHandler(eventType);
+            if (handlerOpt.isEmpty()) {
+                return;
+            }
 
+            EventHandler<Object> handler = handlerOpt.get();
             Object payloadObj = mapValue.containsKey("payload") ? mapValue.get("payload") : mapValue;
             String payloadJson = objectMapper.writeValueAsString(payloadObj);
 
             idempotencyService.processWithIdempotency(eventId, eventType, () -> {
                 try {
-                    SeatsReservedPayload payload = objectMapper.readValue(payloadJson, SeatsReservedPayload.class);
-                    paymentService.processPayment(payload);
+                    Object typedPayload = objectMapper.readValue(payloadJson, handler.payloadType());
+                    handler.handle(typedPayload);
                 } catch (Exception e) {
                     log.error("Failed to process eventId: {}, eventType: {}", eventId, eventType, e);
                     throw new RuntimeException("Error handling event: " + eventType, e);
@@ -71,3 +78,5 @@ public class PaymentKafkaConsumer {
         return null;
     }
 }
+
+

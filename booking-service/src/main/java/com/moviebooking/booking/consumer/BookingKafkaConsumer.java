@@ -1,11 +1,10 @@
 package com.moviebooking.booking.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.moviebooking.booking.service.BookingService;
 import com.moviebooking.common.constants.KafkaConstants;
-import com.moviebooking.common.event.EventTypes.Events;
+import com.moviebooking.common.event.EventHandler;
+import com.moviebooking.common.event.EventHandlerRegistry;
 import com.moviebooking.common.event.EventTypes.Topics;
-import com.moviebooking.common.event.EventPayloads.*;
 import com.moviebooking.common.idempotency.IdempotencyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,28 +14,23 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
+/**
+ * Kafka consumer for booking-service using Strategy Pattern (EventHandlerRegistry)
+ * for event routing instead of switch-case, adhering to Open/Closed Principle.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class BookingKafkaConsumer {
 
-    private final BookingService bookingService;
+    private final EventHandlerRegistry eventHandlerRegistry;
     private final IdempotencyService idempotencyService;
     private final ObjectMapper objectMapper;
 
-    private static final List<String> RELEVANT_EVENTS = Arrays.asList(
-            Events.SEATS_RESERVED,
-            Events.SEAT_RESERVATION_FAILED,
-            Events.PAYMENT_PROCESSED,
-            Events.PAYMENT_FAILED,
-            Events.SEATS_COMPENSATED);
-
-    @KafkaListener(topics = { Topics.SEAT_EVENTS,
-            Topics.PAYMENT_EVENTS }, groupId = KafkaConstants.GROUP_BOOKING_SERVICE)
+    @KafkaListener(topics = { Topics.SEAT_EVENTS, Topics.PAYMENT_EVENTS }, groupId = KafkaConstants.GROUP_BOOKING_SERVICE)
     public void handleEvents(ConsumerRecord<String, String> record) {
         try {
             String headerEventType = extractHeader(record, KafkaConstants.HEADER_EVENT_TYPE);
@@ -59,10 +53,12 @@ public class BookingKafkaConsumer {
                 return;
             }
 
-            if (!RELEVANT_EVENTS.contains(eventType)) {
+            Optional<EventHandler<Object>> handlerOpt = eventHandlerRegistry.getHandler(eventType);
+            if (handlerOpt.isEmpty()) {
                 return;
             }
 
+            EventHandler<Object> handler = handlerOpt.get();
             Object payloadObj = mapValue.containsKey("payload") ? mapValue.get("payload") : mapValue;
             String payloadJson = objectMapper.writeValueAsString(payloadObj);
 
@@ -71,37 +67,8 @@ public class BookingKafkaConsumer {
 
             idempotencyService.processWithIdempotency(targetEventId, targetEventType, () -> {
                 try {
-                    switch (targetEventType) {
-                        case Events.SEATS_RESERVED:
-                            SeatsReservedPayload seatsReservedPayload = objectMapper.readValue(payloadJson,
-                                    SeatsReservedPayload.class);
-                            bookingService.handleSeatsReserved(seatsReservedPayload);
-                            break;
-
-                        case Events.SEAT_RESERVATION_FAILED:
-                            SeatReservationFailedPayload seatFailedPayload = objectMapper.readValue(payloadJson,
-                                    SeatReservationFailedPayload.class);
-                            bookingService.handleSeatReservationFailed(seatFailedPayload);
-                            break;
-
-                        case Events.PAYMENT_PROCESSED:
-                            PaymentProcessedPayload paymentProcessedPayload = objectMapper.readValue(payloadJson,
-                                    PaymentProcessedPayload.class);
-                            bookingService.handlePaymentProcessed(paymentProcessedPayload);
-                            break;
-
-                        case Events.PAYMENT_FAILED:
-                            PaymentFailedPayload paymentFailedPayload = objectMapper.readValue(payloadJson,
-                                    PaymentFailedPayload.class);
-                            bookingService.handlePaymentFailed(paymentFailedPayload);
-                            break;
-
-                        case Events.SEATS_COMPENSATED:
-                            SeatsCompensatedPayload seatsCompensatedPayload = objectMapper.readValue(payloadJson,
-                                    SeatsCompensatedPayload.class);
-                            bookingService.handleSeatsCompensated(seatsCompensatedPayload);
-                            break;
-                    }
+                    Object typedPayload = objectMapper.readValue(payloadJson, handler.payloadType());
+                    handler.handle(typedPayload);
                 } catch (Exception e) {
                     log.error("Failed to process eventId: {}, eventType: {}", targetEventId, targetEventType, e);
                     throw new RuntimeException("Error handling event: " + targetEventType, e);
@@ -121,3 +88,4 @@ public class BookingKafkaConsumer {
         return null;
     }
 }
+
